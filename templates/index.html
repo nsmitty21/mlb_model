@@ -1,0 +1,1202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MLB Edge — Betting Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,400&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:         #080c10;
+    --surface:    #0e1318;
+    --card:       #131a22;
+    --border:     #1e2a36;
+    --accent:     #00d4ff;
+    --accent2:    #ff6b35;
+    --green:      #00e676;
+    --red:        #ff1744;
+    --yellow:     #ffd600;
+    --muted:      #4a5a6a;
+    --text:       #e8f0f8;
+    --text-dim:   #7a9ab0;
+    --mono:       'DM Mono', monospace;
+    --display:    'Bebas Neue', cursive;
+    --body:       'Inter', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--body);
+    font-size: 14px;
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* Background grid */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,212,255,.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,212,255,.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ── Header ── */
+  header {
+    position: sticky; top: 0; z-index: 100;
+    background: rgba(8,12,16,.92);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 32px;
+    display: flex; align-items: center; justify-content: space-between;
+    height: 64px;
+  }
+
+  .logo {
+    font-family: var(--display);
+    font-size: 28px;
+    letter-spacing: 3px;
+    color: var(--accent);
+    text-shadow: 0 0 30px rgba(0,212,255,.4);
+  }
+
+  .logo span { color: var(--accent2); }
+
+  .header-right {
+    display: flex; align-items: center; gap: 16px;
+  }
+
+  .date-badge {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    background: var(--card);
+    border: 1px solid var(--border);
+    padding: 4px 12px;
+    border-radius: 4px;
+  }
+
+  .btn {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    padding: 7px 16px;
+    border-radius: 4px;
+    border: 1px solid;
+    cursor: pointer;
+    transition: all .2s;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #000;
+  }
+  .btn-primary:hover { background: #29ddff; box-shadow: 0 0 20px rgba(0,212,255,.3); }
+
+  .btn-ghost {
+    background: transparent;
+    border-color: var(--border);
+    color: var(--text-dim);
+  }
+  .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ── Layout ── */
+  .container {
+    position: relative; z-index: 1;
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 32px;
+  }
+
+  /* ── Stats Bar ── */
+  .stats-bar {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 16px;
+    margin-bottom: 32px;
+  }
+
+  .stat-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+    transition: border-color .2s;
+  }
+
+  .stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: var(--accent);
+    opacity: .5;
+  }
+
+  .stat-card:hover { border-color: var(--accent); }
+
+  .stat-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+
+  .stat-value {
+    font-family: var(--display);
+    font-size: 32px;
+    letter-spacing: 1px;
+    line-height: 1;
+  }
+
+  .stat-value.green { color: var(--green); text-shadow: 0 0 20px rgba(0,230,118,.3); }
+  .stat-value.red   { color: var(--red);   text-shadow: 0 0 20px rgba(255,23,68,.3); }
+  .stat-value.blue  { color: var(--accent); }
+  .stat-value.gold  { color: var(--yellow); }
+
+  .stat-sub {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 4px;
+  }
+
+  /* ── Section headers ── */
+  .section-header {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 20px;
+  }
+
+  .section-title {
+    font-family: var(--display);
+    font-size: 22px;
+    letter-spacing: 2px;
+    color: var(--text);
+  }
+
+  .section-count {
+    font-family: var(--mono);
+    font-size: 11px;
+    background: var(--accent);
+    color: #000;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-weight: 600;
+  }
+
+  .divider {
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(to right, var(--border), transparent);
+  }
+
+  /* ── Picks ── */
+  .picks-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+    gap: 16px;
+    margin-bottom: 40px;
+  }
+
+  .pick-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 24px;
+    position: relative;
+    overflow: hidden;
+    transition: transform .2s, border-color .2s, box-shadow .2s;
+    animation: fadeSlide .4s ease both;
+  }
+
+  @keyframes fadeSlide {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .pick-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 32px rgba(0,0,0,.5);
+  }
+
+  .pick-card.units-1 { border-left: 3px solid #4a9eff; }
+  .pick-card.units-2 { border-left: 3px solid var(--yellow); }
+  .pick-card.units-3 {
+    border-left: 3px solid var(--accent2);
+    box-shadow: 0 0 30px rgba(255,107,53,.1);
+  }
+
+  /* Glow for 3u */
+  .pick-card.units-3::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(255,107,53,.04), transparent);
+    pointer-events: none;
+  }
+
+  .pick-top {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    margin-bottom: 12px;
+  }
+
+  .pick-matchup {
+    font-size: 12px;
+    color: var(--text-dim);
+    font-family: var(--mono);
+    margin-bottom: 4px;
+  }
+
+  .pick-team {
+    font-family: var(--display);
+    font-size: 22px;
+    letter-spacing: 1px;
+    color: var(--text);
+    line-height: 1;
+  }
+
+  .units-badge {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 2px;
+    flex-shrink: 0;
+  }
+
+  .units-stars {
+    display: flex; gap: 2px;
+  }
+
+  .star {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+  }
+
+  .units-1 .star { background: #4a9eff; }
+  .units-2 .star { background: var(--yellow); }
+  .units-3 .star { background: var(--accent2); }
+
+  .units-label {
+    font-family: var(--display);
+    font-size: 24px;
+    letter-spacing: 1px;
+  }
+
+  .pick-card.units-1 .units-label { color: #4a9eff; }
+  .pick-card.units-2 .units-label { color: var(--yellow); }
+  .pick-card.units-3 .units-label { color: var(--accent2); }
+
+  .units-text {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 1px;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+
+  .pick-meta {
+    display: flex; gap: 8px; flex-wrap: wrap;
+    margin-bottom: 14px;
+  }
+
+  .tag {
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 3px;
+    border: 1px solid;
+  }
+
+  .tag-market {
+    color: var(--accent);
+    border-color: rgba(0,212,255,.3);
+    background: rgba(0,212,255,.05);
+  }
+
+  .tag-book {
+    color: var(--text-dim);
+    border-color: var(--border);
+    background: transparent;
+    text-transform: uppercase;
+  }
+
+  .tag-odds {
+    color: var(--yellow);
+    border-color: rgba(255,214,0,.3);
+    background: rgba(255,214,0,.05);
+    font-weight: 500;
+  }
+
+  .tag-time {
+    color: var(--muted);
+    border-color: var(--border);
+  }
+
+  .pick-edge-bar {
+    margin-bottom: 14px;
+  }
+
+  .edge-labels {
+    display: flex; justify-content: space-between;
+    margin-bottom: 4px;
+  }
+
+  .edge-label-left {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .edge-value {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--green);
+  }
+
+  .bar-track {
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .bar-fill {
+    height: 100%;
+    border-radius: 2px;
+    background: linear-gradient(to right, var(--green), #00ff9d);
+    transition: width .6s ease;
+  }
+
+  .pick-probs {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+
+  .prob-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 12px;
+  }
+
+  .prob-label {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 1px;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 2px;
+  }
+
+  .prob-val {
+    font-family: var(--mono);
+    font-size: 16px;
+    font-weight: 500;
+  }
+
+  .prob-val.model { color: var(--accent); }
+  .prob-val.book  { color: var(--text-dim); }
+
+  .pick-pitchers {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    border-top: 1px solid var(--border);
+    padding-top: 10px;
+    display: flex; gap: 12px;
+  }
+
+  .pitcher-item { display: flex; gap: 4px; align-items: center; }
+  .pitcher-label { color: var(--border); }
+  .pitcher-name  { color: var(--text-dim); }
+
+  .no-picks {
+    grid-column: 1/-1;
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 13px;
+  }
+
+  .no-picks .big { font-family: var(--display); font-size: 48px; color: var(--border); display: block; margin-bottom: 12px; }
+
+  /* ── Bet Log ── */
+  .log-wrap {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+
+  .log-filters {
+    display: flex; gap: 8px; padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .filter-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-right: 4px;
+  }
+
+  .filter-btn {
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: all .15s;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+  }
+
+  .filter-btn.active, .filter-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(0,212,255,.05);
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  thead th {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 12px 16px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    position: sticky; top: 0;
+    white-space: nowrap;
+  }
+
+  tbody tr {
+    border-bottom: 1px solid rgba(30,42,54,.5);
+    transition: background .15s;
+  }
+
+  tbody tr:hover { background: rgba(0,212,255,.02); }
+  tbody tr:last-child { border-bottom: none; }
+
+  td {
+    padding: 12px 16px;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+
+  .td-team {
+    font-weight: 500;
+    color: var(--text);
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .td-matchup {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    display: block;
+    margin-top: 1px;
+  }
+
+  .td-mono { font-family: var(--mono); font-size: 12px; color: var(--text-dim); }
+  .td-date { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+
+  .result-badge {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-weight: 600;
+    border: 1px solid;
+  }
+
+  .result-win  { color: var(--green); border-color: rgba(0,230,118,.3); background: rgba(0,230,118,.08); }
+  .result-loss { color: var(--red);   border-color: rgba(255,23,68,.3);  background: rgba(255,23,68,.08); }
+  .result-push { color: var(--muted); border-color: var(--border);       background: transparent; }
+  .result-pending {
+    color: var(--accent);
+    border-color: rgba(0,212,255,.3);
+    background: rgba(0,212,255,.05);
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: .5; }
+  }
+
+  .pnl-pos { color: var(--green); font-family: var(--mono); font-weight: 500; }
+  .pnl-neg { color: var(--red);   font-family: var(--mono); font-weight: 500; }
+  .pnl-nil { color: var(--muted); font-family: var(--mono); }
+
+  .units-dot {
+    display: inline-flex; gap: 2px; align-items: center;
+    margin-right: 4px;
+  }
+
+  .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+  }
+
+  .u1 .dot { background: #4a9eff; }
+  .u2 .dot { background: var(--yellow); }
+  .u3 .dot { background: var(--accent2); }
+
+  /* ── Market breakdown ── */
+  .market-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-bottom: 32px;
+  }
+
+  .market-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+  }
+
+  .market-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+
+  .market-record {
+    font-family: var(--display);
+    font-size: 26px;
+    letter-spacing: 1px;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+
+  .market-pnl {
+    font-family: var(--mono);
+    font-size: 13px;
+  }
+
+  /* ── P&L chart ── */
+  .chart-wrap {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px;
+    margin-bottom: 32px;
+  }
+
+  .chart-area {
+    width: 100%;
+    height: 120px;
+    position: relative;
+  }
+
+  svg.pnl-chart {
+    width: 100%; height: 100%;
+    overflow: visible;
+  }
+
+  /* ── Loading overlay ── */
+  .loading-overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(8,12,16,.8);
+    backdrop-filter: blur(4px);
+    z-index: 200;
+    flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 16px;
+  }
+
+  .loading-overlay.show { display: flex; }
+
+  .spinner {
+    width: 48px; height: 48px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .loading-text {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+  }
+
+  /* ── Toast ── */
+  .toast-container {
+    position: fixed;
+    bottom: 24px; right: 24px;
+    z-index: 300;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+
+  .toast {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    font-family: var(--mono);
+    font-size: 12px;
+    max-width: 300px;
+    animation: toastIn .3s ease;
+    display: flex; gap: 8px; align-items: center;
+  }
+
+  @keyframes toastIn {
+    from { opacity: 0; transform: translateX(20px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+
+  .toast.success { border-left: 3px solid var(--green); }
+  .toast.error   { border-left: 3px solid var(--red); }
+  .toast.info    { border-left: 3px solid var(--accent); }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+  /* ── Responsive ── */
+  @media (max-width: 768px) {
+    .container { padding: 16px; }
+    header { padding: 0 16px; }
+    .picks-grid { grid-template-columns: 1fr; }
+    .market-grid { grid-template-columns: 1fr; }
+    .stats-bar { grid-template-columns: repeat(2, 1fr); }
+    table { font-size: 12px; }
+    td, th { padding: 8px 10px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Loading Overlay -->
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="spinner"></div>
+  <div class="loading-text" id="loadingText">REFRESHING...</div>
+</div>
+
+<!-- Toast Container -->
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- Header -->
+<header>
+  <div class="logo">MLB <span>EDGE</span></div>
+  <div class="header-right">
+    <div class="date-badge" id="headerDate">—</div>
+    <button class="btn btn-ghost" onclick="fetchUpdate()">↺ GRADE RESULTS</button>
+    <button class="btn btn-primary" onclick="refreshPicks()">⚡ REFRESH PICKS</button>
+  </div>
+</header>
+
+<!-- Main -->
+<div class="container">
+
+  <!-- Stats Bar -->
+  <div class="stats-bar" id="statsBar">
+    <div class="stat-card">
+      <div class="stat-label">Overall Record</div>
+      <div class="stat-value blue" id="statRecord">—</div>
+      <div class="stat-sub" id="statWinPct">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Total P&L (Units)</div>
+      <div class="stat-value" id="statPnl">—</div>
+      <div class="stat-sub" id="statRoi">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Today's Picks</div>
+      <div class="stat-value gold" id="statTodayPicks">—</div>
+      <div class="stat-sub" id="statPending">— pending</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Current Streak</div>
+      <div class="stat-value" id="statStreak">—</div>
+      <div class="stat-sub">in a row</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">3U Plays</div>
+      <div class="stat-value" id="stat3u">—</div>
+      <div class="stat-sub" id="stat3uPnl">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">2U Plays</div>
+      <div class="stat-value" id="stat2u">—</div>
+      <div class="stat-sub" id="stat2uPnl">—</div>
+    </div>
+  </div>
+
+  <!-- P&L Chart -->
+  <div class="chart-wrap">
+    <div class="section-header" style="margin-bottom:16px">
+      <div class="section-title">P&L CURVE</div>
+      <div class="divider"></div>
+    </div>
+    <div class="chart-area">
+      <svg class="pnl-chart" id="pnlChart"></svg>
+    </div>
+  </div>
+
+  <!-- Today's Picks -->
+  <div class="section-header">
+    <div class="section-title">TODAY'S PICKS</div>
+    <div class="section-count" id="picksCount">0</div>
+    <div class="divider"></div>
+  </div>
+  <div class="picks-grid" id="picksGrid">
+    <div class="no-picks">
+      <span class="big">⚾</span>
+      Run <strong>python run_today.py</strong> to generate picks
+    </div>
+  </div>
+
+  <!-- Market Breakdown -->
+  <div class="section-header">
+    <div class="section-title">BY MARKET</div>
+    <div class="divider"></div>
+  </div>
+  <div class="market-grid" id="marketGrid">
+    <div class="market-card"><div class="market-title">Moneyline</div><div class="market-record" id="mktML">—</div><div class="market-pnl" id="mktMLpnl">—</div></div>
+    <div class="market-card"><div class="market-title">Run Line</div><div class="market-record" id="mktRL">—</div><div class="market-pnl" id="mktRLpnl">—</div></div>
+    <div class="market-card"><div class="market-title">Totals</div><div class="market-record" id="mktTot">—</div><div class="market-pnl" id="mktTotpnl">—</div></div>
+  </div>
+
+  <!-- Bet Log -->
+  <div class="section-header">
+    <div class="section-title">BET LOG</div>
+    <div class="divider"></div>
+  </div>
+  <div class="log-wrap">
+    <div class="log-filters">
+      <span class="filter-label">Filter:</span>
+      <button class="filter-btn active" data-filter="all"   onclick="setFilter('all',   this)">All</button>
+      <button class="filter-btn"        data-filter="win"   onclick="setFilter('win',   this)">Wins</button>
+      <button class="filter-btn"        data-filter="loss"  onclick="setFilter('loss',  this)">Losses</button>
+      <button class="filter-btn"        data-filter="open"  onclick="setFilter('open',  this)">Pending</button>
+      <button class="filter-btn"        data-filter="ML"    onclick="setFilter('ML',    this)">ML</button>
+      <button class="filter-btn"        data-filter="RL"    onclick="setFilter('RL',    this)">Run Line</button>
+      <button class="filter-btn"        data-filter="Total" onclick="setFilter('Total', this)">Totals</button>
+    </div>
+    <div style="overflow-x:auto;">
+      <table id="betTable">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Matchup</th>
+            <th>Pick</th>
+            <th>Market</th>
+            <th>Units</th>
+            <th>Odds</th>
+            <th>Book</th>
+            <th>Edge</th>
+            <th>Score</th>
+            <th>Result</th>
+            <th>P&L</th>
+          </tr>
+        </thead>
+        <tbody id="betLogBody">
+          <tr><td colspan="11" style="text-align:center; color:var(--muted); font-family:var(--mono); padding:40px;">No bets logged yet</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div><!-- /container -->
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────────
+let allBets   = [];
+let curFilter = 'all';
+let stats     = {};
+let picks     = [];
+
+// ── Init ───────────────────────────────────────────────────────────────────────
+async function init() {
+  await Promise.all([loadPicks(), loadStats(), loadBetLog()]);
+  document.getElementById('headerDate').textContent = new Date().toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric', year:'numeric'});
+}
+
+// ── Data loaders ───────────────────────────────────────────────────────────────
+async function loadPicks() {
+  try {
+    const res  = await fetch('/api/picks');
+    const data = await res.json();
+    picks = data.picks || [];
+    renderPicks(picks);
+    document.getElementById('picksCount').textContent = picks.length;
+    if (picks.length > 0) {
+      document.getElementById('statTodayPicks').textContent = picks.length;
+    }
+  } catch (e) {
+    console.error('Picks load error:', e);
+  }
+}
+
+async function loadStats() {
+  try {
+    const res  = await fetch('/api/stats');
+    stats = await res.json();
+    renderStats(stats);
+  } catch (e) {
+    console.error('Stats load error:', e);
+  }
+}
+
+async function loadBetLog() {
+  try {
+    const res  = await fetch('/api/betlog');
+    const data = await res.json();
+    allBets = (data.bets || []).reverse();
+    renderBetLog(allBets, curFilter);
+    renderChart(allBets);
+  } catch (e) {
+    console.error('BetLog load error:', e);
+  }
+}
+
+// ── Renders ────────────────────────────────────────────────────────────────────
+function renderStats(s) {
+  if (!s) return;
+
+  const pnl    = s.total_pnl || 0;
+  const pnlEl  = document.getElementById('statPnl');
+  pnlEl.textContent = (pnl >= 0 ? '+' : '') + pnl.toFixed(1) + 'u';
+  pnlEl.className   = 'stat-value ' + (pnl >= 0 ? 'green' : 'red');
+
+  document.getElementById('statRecord').textContent  = s.record || '0-0';
+  document.getElementById('statWinPct').textContent  = s.win_pct + '% win rate';
+  document.getElementById('statRoi').textContent     = 'ROI: ' + s.roi + '%';
+  document.getElementById('statPending').textContent = (s.pending_bets || 0) + ' pending';
+
+  const streak = s.streak || {};
+  const streakEl = document.getElementById('statStreak');
+  streakEl.textContent = streak.count || '—';
+  streakEl.className   = 'stat-value ' + (streak.type === 'win' ? 'green' : streak.type === 'loss' ? 'red' : 'blue');
+
+  const bu = s.by_units || {};
+  document.getElementById('stat3u').textContent   = (bu[3] || {}).record || '0-0';
+  document.getElementById('stat3uPnl').textContent = formatPnlText((bu[3] || {}).pnl || 0);
+  document.getElementById('stat2u').textContent   = (bu[2] || {}).record || '0-0';
+  document.getElementById('stat2uPnl').textContent = formatPnlText((bu[2] || {}).pnl || 0);
+
+  const bm = s.by_market || {};
+  ['ML','RL','Total'].forEach(m => {
+    const d = bm[m] || {};
+    const key = m === 'ML' ? 'mktML' : m === 'RL' ? 'mktRL' : 'mktTot';
+    document.getElementById(key).textContent = d.record || '0-0';
+    const pnlEl2 = document.getElementById(key + 'pnl');
+    pnlEl2.textContent  = formatPnlText(d.pnl || 0);
+    pnlEl2.style.color  = (d.pnl || 0) >= 0 ? 'var(--green)' : 'var(--red)';
+  });
+}
+
+function formatPnlText(val) {
+  return (val >= 0 ? '+' : '') + val.toFixed(1) + ' units';
+}
+
+function renderPicks(picks) {
+  const grid = document.getElementById('picksGrid');
+  if (!picks || picks.length === 0) {
+    grid.innerHTML = `<div class="no-picks"><span class="big">⚾</span>No picks meet the edge threshold today.<br><span style="font-size:11px;margin-top:8px;display:block">Click REFRESH PICKS or run: <code>python run_today.py</code></span></div>`;
+    return;
+  }
+
+  grid.innerHTML = picks.map((p, i) => {
+    const u = p.units || 1;
+    const stars = Array(u).fill('<div class="dot"></div>').join('');
+    const edgePct = ((p.edge || 0) * 100).toFixed(1);
+    const barWidth = Math.min((p.edge || 0) / 0.15 * 100, 100);
+    const modelPct = ((p.model_prob || 0) * 100).toFixed(1);
+    const bookPct  = ((p.book_prob  || 0) * 100).toFixed(1);
+    const odds = p.odds >= 0 ? '+' + p.odds : p.odds;
+    const bookLabel = (p.book || '').toUpperCase();
+    const marketLabel = p.market === 'RL' ? 'RUN LINE' : p.market === 'ML' ? 'MONEYLINE' : 'TOTAL';
+    let timeStr = '';
+    if (p.commence) {
+      try {
+        const d = new Date(p.commence);
+        timeStr = d.toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit', hour12:true, timeZone:'America/New_York'}) + ' ET';
+      } catch(e) {}
+    }
+
+    const pitcherHtml = (p.away_sp || p.home_sp) ? `
+      <div class="pick-pitchers">
+        <div class="pitcher-item"><span class="pitcher-label">AWAY:</span> <span class="pitcher-name">${p.away_sp || 'TBD'}</span></div>
+        <div class="pitcher-item"><span class="pitcher-label">HOME:</span> <span class="pitcher-name">${p.home_sp || 'TBD'}</span></div>
+      </div>` : '';
+
+    return `<div class="pick-card units-${u}" style="animation-delay:${i*0.05}s">
+      <div class="pick-top">
+        <div>
+          <div class="pick-matchup">${p.away_team} @ ${p.home_team}</div>
+          <div class="pick-team">${p.team || '—'}</div>
+        </div>
+        <div class="units-badge u${u}">
+          <div class="units-stars">${stars}</div>
+          <div class="units-label">${u}U</div>
+          <div class="units-text">unit${u>1?'s':''}</div>
+        </div>
+      </div>
+      <div class="pick-meta">
+        <span class="tag tag-market">${marketLabel}</span>
+        <span class="tag tag-book">${bookLabel}</span>
+        <span class="tag tag-odds">${odds}</span>
+        ${timeStr ? `<span class="tag tag-time">${timeStr}</span>` : ''}
+      </div>
+      <div class="pick-edge-bar">
+        <div class="edge-labels">
+          <span class="edge-label-left">EDGE</span>
+          <span class="edge-value">+${edgePct}%</span>
+        </div>
+        <div class="bar-track">
+          <div class="bar-fill" style="width:${barWidth}%"></div>
+        </div>
+      </div>
+      <div class="pick-probs">
+        <div class="prob-item">
+          <div class="prob-label">Model Prob</div>
+          <div class="prob-val model">${modelPct}%</div>
+        </div>
+        <div class="prob-item">
+          <div class="prob-label">Book (Fair)</div>
+          <div class="prob-val book">${bookPct}%</div>
+        </div>
+      </div>
+      ${pitcherHtml}
+    </div>`;
+  }).join('');
+}
+
+function renderBetLog(bets, filter) {
+  const tbody = document.getElementById('betLogBody');
+  let filtered = bets;
+
+  if (filter === 'win')   filtered = bets.filter(b => b.result === 'win');
+  else if (filter === 'loss')  filtered = bets.filter(b => b.result === 'loss');
+  else if (filter === 'open')  filtered = bets.filter(b => !b.result);
+  else if (['ML','RL','Total'].includes(filter)) filtered = bets.filter(b => b.market === filter);
+
+  if (!filtered.length) {
+    tbody.innerHTML = `<tr><td colspan="11" style="text-align:center;color:var(--muted);font-family:var(--mono);padding:32px;">No bets matching filter</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(b => {
+    const u = b.units || 1;
+    const dots = `<span class="units-dot u${u}">${Array(u).fill('<div class="dot"></div>').join('')}</span>`;
+    const odds = (b.odds >= 0 ? '+' : '') + (b.odds || '');
+    const edge = b.edge ? ((b.edge*100).toFixed(1)+'%') : '—';
+    const pnl  = b.pnl != null ? b.pnl : null;
+    const pnlHtml = pnl == null
+      ? '<span class="pnl-nil">—</span>'
+      : `<span class="${pnl >= 0 ? 'pnl-pos' : 'pnl-neg'}">${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}u</span>`;
+    const score = (b.home_score || b.away_score)
+      ? `${b.away_score}–${b.home_score}`
+      : '—';
+    const result = b.result || '';
+    const resultHtml = !result
+      ? '<span class="result-badge result-pending">PENDING</span>'
+      : result === 'win'
+        ? '<span class="result-badge result-win">WIN</span>'
+        : result === 'loss'
+          ? '<span class="result-badge result-loss">LOSS</span>'
+          : '<span class="result-badge result-push">PUSH</span>';
+    const bookLabel = (b.book || '').toUpperCase();
+
+    return `<tr>
+      <td class="td-date">${b.date || '—'}</td>
+      <td class="td-team">
+        ${b.away_team} <span style="color:var(--muted)">@</span> ${b.home_team}
+        <span class="td-matchup">${b.home_sp || ''} vs ${b.away_sp || ''}</span>
+      </td>
+      <td class="td-team">${b.team || '—'}</td>
+      <td class="td-mono">${b.market || '—'}</td>
+      <td>${dots}<span class="td-mono" style="font-size:11px;">${u}u</span></td>
+      <td class="td-mono">${odds}</td>
+      <td class="td-mono" style="color:var(--text-dim)">${bookLabel}</td>
+      <td class="td-mono" style="color:var(--green)">${edge}</td>
+      <td class="td-mono">${score}</td>
+      <td>${resultHtml}</td>
+      <td>${pnlHtml}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderChart(bets) {
+  const svg = document.getElementById('pnlChart');
+  const graded = [...bets].filter(b => b.result === 'win' || b.result === 'loss').reverse();
+
+  if (!graded.length) {
+    svg.innerHTML = `<text x="50%" y="50%" fill="var(--muted)" font-family="DM Mono" font-size="12" text-anchor="middle" dominant-baseline="middle">No graded bets yet</text>`;
+    return;
+  }
+
+  // Compute cumulative P&L
+  let cumulative = 0;
+  const points = [{ x: 0, y: 0 }];
+  graded.forEach((b, i) => {
+    cumulative += (b.pnl || 0);
+    points.push({ x: i + 1, y: cumulative });
+  });
+
+  const W = 1200, H = 120;
+  const xScale = W / Math.max(points.length - 1, 1);
+  const yVals  = points.map(p => p.y);
+  const yMin   = Math.min(...yVals, -1);
+  const yMax   = Math.max(...yVals, 1);
+  const yRange = yMax - yMin || 1;
+
+  const toX = i  => i * xScale;
+  const toY = v  => H - ((v - yMin) / yRange) * H;
+
+  // Zero line
+  const zeroY = toY(0);
+  const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${toX(p.x)} ${toY(p.y)}`).join(' ');
+
+  // Gradient fill
+  const fillD = pathD + ` L ${toX(points.length-1)} ${H} L 0 ${H} Z`;
+  const lastPnl = cumulative;
+  const lineColor  = lastPnl >= 0 ? 'var(--green)' : 'var(--red)';
+  const fillColorS = lastPnl >= 0 ? 'rgba(0,230,118,.15)' : 'rgba(255,23,68,.1)';
+  const fillColorE = lastPnl >= 0 ? 'rgba(0,230,118,0)'   : 'rgba(255,23,68,0)';
+
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.setAttribute('preserveAspectRatio', 'none');
+
+  svg.innerHTML = `
+    <defs>
+      <linearGradient id="pnlGrad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%"   stop-color="${fillColorS}"/>
+        <stop offset="100%" stop-color="${fillColorE}"/>
+      </linearGradient>
+    </defs>
+    <!-- Zero line -->
+    <line x1="0" y1="${zeroY}" x2="${W}" y2="${zeroY}" stroke="var(--border)" stroke-width="1" stroke-dasharray="4,4"/>
+    <!-- Fill -->
+    <path d="${fillD}" fill="url(#pnlGrad)"/>
+    <!-- Line -->
+    <path d="${pathD}" fill="none" stroke="${lineColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Last point dot -->
+    <circle cx="${toX(points.length-1)}" cy="${toY(cumulative)}" r="4" fill="${lineColor}"/>
+    <!-- Labels -->
+    <text x="4" y="14" fill="var(--muted)" font-family="DM Mono" font-size="11">0u</text>
+    <text x="4" y="${Math.max(zeroY - 4, 14)}" fill="${lineColor}" font-family="DM Mono" font-size="11" text-anchor="start">${(lastPnl>=0?'+':'')}${lastPnl.toFixed(1)}u</text>
+  `;
+}
+
+// ── Actions ────────────────────────────────────────────────────────────────────
+function setFilter(filter, el) {
+  curFilter = filter;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  renderBetLog(allBets, curFilter);
+}
+
+async function refreshPicks() {
+  showLoading('PULLING LINES & GENERATING PICKS...');
+  try {
+    const res  = await fetch('/api/refresh', { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      await Promise.all([loadPicks(), loadStats(), loadBetLog()]);
+      toast('Picks refreshed!', 'success');
+    } else {
+      toast('Error: ' + (data.stderr || 'Check logs'), 'error');
+    }
+  } catch (e) {
+    toast('Network error', 'error');
+  }
+  hideLoading();
+}
+
+async function fetchUpdate() {
+  showLoading('GRADING RESULTS & RETRAINING...');
+  try {
+    const res  = await fetch('/api/update', { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      await Promise.all([loadStats(), loadBetLog()]);
+      toast('Results graded & model updated!', 'success');
+    } else {
+      toast('Error grading results', 'error');
+    }
+  } catch (e) {
+    toast('Network error', 'error');
+  }
+  hideLoading();
+}
+
+// ── UI helpers ─────────────────────────────────────────────────────────────────
+function showLoading(text) {
+  document.getElementById('loadingText').textContent = text;
+  document.getElementById('loadingOverlay').classList.add('show');
+}
+
+function hideLoading() {
+  document.getElementById('loadingOverlay').classList.remove('show');
+}
+
+function toast(msg, type = 'info') {
+  const container = document.getElementById('toastContainer');
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.innerHTML = msg;
+  container.appendChild(el);
+  setTimeout(() => el.remove(), 4000);
+}
+
+// ── Auto-refresh every 5 minutes ───────────────────────────────────────────────
+setInterval(() => {
+  loadStats();
+  loadBetLog();
+}, 5 * 60 * 1000);
+
+// ── Boot ───────────────────────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>
