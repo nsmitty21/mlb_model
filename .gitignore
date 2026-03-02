@@ -4,4 +4,3 @@ __pycache__/
 data/live/
 data/logs/
 models/*.joblib
-*.parquet
