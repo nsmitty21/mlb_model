@@ -42,31 +42,19 @@ TEAM_FEATURE_COLS = (
     [f"home_bat_{f}" for f in BATTING_FEATS] +
     [f"away_bat_{f}" for f in BATTING_FEATS] +
     [f"home_pit_{f}" for f in PITCHING_FEATS] +
-    [f"away_pit_{f}" for f in PITCHING_FEATS]
+    [f"away_pit_{f}" for f in PITCHING_FEATS] +
+    [f"diff_bat_{f}" for f in BATTING_FEATS] +
+    [f"diff_pit_{f}" for f in PITCHING_FEATS] +
+    ["home_field"]
 )
 
-# Pinnacle market features.
-# These encode sharp-money consensus and are among the most predictive
-# signals available for ML betting models.
-#
-#   pi_close_no_vig_home   – Pinnacle's true probability (no vig).
-#                            The single best external calibration signal.
-#   pi_open_implied_home   – Opening raw implied prob.  Difference from
-#                            closing reveals how the line moved.
-#   pi_ml_movement         – Signed movement in American odds.
-#                            Positive = home shortened (public/sharp money
-#                            on home); negative = home lengthened.
-#   pi_spread_movement     – Same for the spread line.
-#   pi_total_movement      – Same for the total.
-#   pi_close_total         – Pinnacle closing total: direct input for the
-#                            totals regression model.
 PINNACLE_FEATURE_COLS = [
-    "pi_close_no_vig_home",   # sharp closing probability
-    "pi_open_implied_home",   # opening implied probability (raw)
-    "pi_ml_movement",         # ML line movement (American)
-    "pi_spread_movement",     # spread movement
-    "pi_total_movement",      # total movement
-    "pi_close_total",         # closing total line
+    "pi_close_no_vig_home",
+    "pi_open_implied_home",
+    "pi_ml_movement",
+    "pi_spread_movement",
+    "pi_total_movement",
+    "pi_close_total",
 ]
 
 FEATURE_COLS = TEAM_FEATURE_COLS + PINNACLE_FEATURE_COLS
@@ -95,21 +83,8 @@ def build_features(df):
     """
     Ensure all feature columns exist, filling missing Pinnacle data with the
     median so training rows without PI lines are still usable.
-
-    Pinnacle fill strategy:
-      - pi_close_no_vig_home / pi_open_implied_home → median ≈ 0.50
-        (neutral when unknown)
-      - Movement columns → 0.0 (no movement is the neutral baseline)
-      - pi_close_total → median total (neutral)
     """
-    missing_team = [c for c in TEAM_FEATURE_COLS    if c not in df.columns]
-    missing_pi   = [c for c in PINNACLE_FEATURE_COLS if c not in df.columns]
-
-    if missing_team:
-        print(f"  [warn] {len(missing_team)} team-stat features missing, filling with 0")
-        for c in missing_team:
-            df[c] = 0.0
-
+    missing_pi = [c for c in PINNACLE_FEATURE_COLS if c not in df.columns]
     if missing_pi:
         print(f"  [warn] {len(missing_pi)} Pinnacle features missing from parquet: {missing_pi}")
         for c in missing_pi:
@@ -122,6 +97,29 @@ def build_features(df):
         if cov < 0.50:
             print(f"  [warn] {c} only {cov:.1%} non-null — PI signal will be weak")
 
+    # ── Compute diff_ and home_field FIRST, before any missing-col fill ──────
+    # This ensures diffs are computed from real data, not zeros.
+    df["home_field"] = 1
+    for f in BATTING_FEATS:
+        hv = df.get(f"home_bat_{f}", pd.Series(dtype=float))
+        av = df.get(f"away_bat_{f}", pd.Series(dtype=float))
+        df[f"diff_bat_{f}"] = hv - av
+    for f in PITCHING_FEATS:
+        hv = df.get(f"home_pit_{f}", pd.Series(dtype=float))
+        av = df.get(f"away_pit_{f}", pd.Series(dtype=float))
+        # For ERA/FIP/WHIP/BB9: lower is better, so away - home = positive means home advantage
+        if f in ("ERA", "FIP", "WHIP", "BB/9"):
+            df[f"diff_pit_{f}"] = av - hv
+        else:
+            df[f"diff_pit_{f}"] = hv - av
+
+    # Now fill any remaining missing raw team-stat columns
+    missing_team = [c for c in TEAM_FEATURE_COLS if c not in df.columns]
+    if missing_team:
+        print(f"  [warn] {len(missing_team)} team-stat features still missing, filling with 0")
+        for c in missing_team:
+            df[c] = 0.0
+
     # Fill team stats with median (original behaviour)
     df[TEAM_FEATURE_COLS] = df[TEAM_FEATURE_COLS].fillna(df[TEAM_FEATURE_COLS].median())
 
@@ -131,7 +129,7 @@ def build_features(df):
     total_col     = ["pi_close_total"]
 
     for c in movement_cols:
-        df[c] = df[c].fillna(0.0)          # no movement = neutral
+        df[c] = df[c].fillna(0.0)
     for c in prob_cols:
         df[c] = df[c].fillna(df[c].median() if df[c].notna().any() else 0.5)
     for c in total_col:
@@ -162,10 +160,6 @@ def train():
 
     tscv = TimeSeriesSplit(n_splits=5)
 
-    # ── Moneyline model ───────────────────────────────────────────────────────
-    # pi_close_no_vig_home is likely to dominate feature importance here.
-    # That's expected — the goal is to find games where our team-stat model
-    # DISAGREES with the sharp market, not to replicate it.
     print("\nTraining moneyline model (win probability)...")
     ml_model = XGBClassifier(
         n_estimators=400, max_depth=4, learning_rate=0.05,
@@ -178,7 +172,6 @@ def train():
     print(f"  AUC: {scores.mean():.3f} +/- {scores.std():.3f}")
     _report_pi_importance(ml_model, "ML")
 
-    # ── Run diff model (run line) ─────────────────────────────────────────────
     print("\nTraining run line model (run differential)...")
     rl_model = XGBRegressor(
         n_estimators=400, max_depth=4, learning_rate=0.05,
@@ -191,9 +184,6 @@ def train():
     print(f"  MAE: {-scores.mean():.3f} +/- {scores.std():.3f}")
     _report_pi_importance(rl_model, "RunLine")
 
-    # ── Totals model ──────────────────────────────────────────────────────────
-    # pi_close_total is a direct input here — the model learns when
-    # team stats suggest going over or under the sharp line.
     print("\nTraining totals model (total runs)...")
     tot_model = XGBRegressor(
         n_estimators=400, max_depth=4, learning_rate=0.05,
@@ -206,21 +196,20 @@ def train():
     print(f"  MAE: {-scores.mean():.3f} +/- {scores.std():.3f}")
     _report_pi_importance(tot_model, "Totals")
 
-    # ── Save ──────────────────────────────────────────────────────────────────
     joblib.dump({"ml": ml_model, "rl": rl_model, "totals": tot_model}, MODEL_PATH)
     joblib.dump(scaler, SCALER_PATH)
     with open(FEATURES_PATH, "w") as f:
         json.dump(FEATURE_COLS, f, indent=2)
 
     meta = {
-        "trained_at":        pd.Timestamp.now().isoformat(),
-        "n_games":           len(df),
-        "n_features":        len(FEATURE_COLS),
-        "n_team_features":   len(TEAM_FEATURE_COLS),
+        "trained_at":          pd.Timestamp.now().isoformat(),
+        "n_games":             len(df),
+        "n_features":          len(FEATURE_COLS),
+        "n_team_features":     len(TEAM_FEATURE_COLS),
         "n_pinnacle_features": len(PINNACLE_FEATURE_COLS),
-        "pinnacle_features": PINNACLE_FEATURE_COLS,
-        "home_win_pct":      round(float(y_win.mean()), 3),
-        "avg_total":         round(float(y_runs.mean()), 2),
+        "pinnacle_features":   PINNACLE_FEATURE_COLS,
+        "home_win_pct":        round(float(y_win.mean()), 3),
+        "avg_total":           round(float(y_runs.mean()), 2),
     }
     with open(MODEL_DIR + "/meta.json", "w") as f:
         json.dump(meta, f, indent=2)

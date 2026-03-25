@@ -1,7 +1,17 @@
 {
-  "trained_at": "2026-03-20T23:42:23.306770",
+  "trained_at": "2026-03-25T15:02:49.052325",
   "n_games": 12148,
-  "n_features": 30,
+  "n_features": 52,
+  "n_team_features": 46,
+  "n_pinnacle_features": 6,
+  "pinnacle_features": [
+    "pi_close_no_vig_home",
+    "pi_open_implied_home",
+    "pi_ml_movement",
+    "pi_spread_movement",
+    "pi_total_movement",
+    "pi_close_total"
+  ],
   "home_win_pct": 0.531,
   "avg_total": 8.91
 }

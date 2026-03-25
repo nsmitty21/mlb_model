@@ -24,7 +24,8 @@ HISTORICAL_PATH = os.path.join(HIST_DIR, "historical_stats.parquet")
 
 # ── CSV paths for historical lines (2021-2025) ─────────────────────────────
 # These CSVs must live in the same directory as this script (or update path).
-LINES_CSV_DIR = os.path.dirname(os.path.abspath(__file__))
+from config import HIST_ODDS_DIR
+LINES_CSV_DIR = HIST_ODDS_DIR
 
 os.makedirs(DATA_DIR, exist_ok=True)
 
@@ -33,6 +34,42 @@ ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb"
 
 ESPN_TO_STD = {
     "CWS":"CHW","KC":"KCR","SD":"SDP","SF":"SFG","TB":"TBR","WSH":"WSN"
+}
+
+# The Odds API CSVs use full team names; ESPN schedules use abbreviations.
+# This map converts full names → standard abbreviations for the join key.
+FULL_NAME_TO_ABB = {
+    "Arizona Diamondbacks":  "ARI",
+    "Atlanta Braves":        "ATL",
+    "Baltimore Orioles":     "BAL",
+    "Boston Red Sox":        "BOS",
+    "Chicago Cubs":          "CHC",
+    "Chicago White Sox":     "CHW",
+    "Cincinnati Reds":       "CIN",
+    "Cleveland Guardians":   "CLE",
+    "Colorado Rockies":      "COL",
+    "Detroit Tigers":        "DET",
+    "Houston Astros":        "HOU",
+    "Kansas City Royals":    "KCR",
+    "Los Angeles Angels":    "LAA",
+    "Los Angeles Dodgers":   "LAD",
+    "Miami Marlins":         "MIA",
+    "Milwaukee Brewers":     "MIL",
+    "Minnesota Twins":       "MIN",
+    "New York Mets":         "NYM",
+    "New York Yankees":      "NYY",
+    "Oakland Athletics":     "OAK",
+    "Athletics":             "OAK",  # Sacramento rebranding
+    "Philadelphia Phillies": "PHI",
+    "Pittsburgh Pirates":    "PIT",
+    "San Diego Padres":      "SDP",
+    "San Francisco Giants":  "SFG",
+    "Seattle Mariners":      "SEA",
+    "St. Louis Cardinals":   "STL",
+    "Tampa Bay Rays":        "TBR",
+    "Texas Rangers":         "TEX",
+    "Toronto Blue Jays":     "TOR",
+    "Washington Nationals":  "WSN",
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -140,6 +177,9 @@ def load_pinnacle_lines_csv(years):
 
         out = pd.DataFrame({
             "game_id":                   df["game_id"],
+            "commence_time":             df.get("commence_time", pd.Series(dtype=str)),
+            "home_team":                 df.get("home_team", pd.Series(dtype=str)),
+            "away_team":                 df.get("away_team", pd.Series(dtype=str)),
             "pi_open_ml_home":           pd.to_numeric(open_ml_home, errors="coerce"),
             "pi_close_ml_home":          pd.to_numeric(close_ml_home, errors="coerce"),
             "pi_close_ml_away":          pd.to_numeric(close_ml_away, errors="coerce"),
@@ -185,7 +225,7 @@ def load_pinnacle_lines_csv(years):
     combined = (combined.sort_values("_pi_completeness", ascending=False)
                         .drop_duplicates(subset=["game_id"], keep="first")
                         .drop(columns=["_pi_completeness"]))
-    return combined.set_index("game_id")
+    return combined
 
 
 def american_to_prob_inv(prob):
@@ -345,13 +385,34 @@ def build_game_features(schedules_df, team_bat_df, team_pit_df, pinnacle_lines=N
         for _, row in team_pit_df.iterrows():
             pit_lookup[(str(row["team"]), int(row["season"]))] = row
 
-    bat_features = ["AVG","OBP","SLG","OPS","R","HR","BB","SO","wRC+","wOBA","WAR"]
-    pit_features = ["ERA","FIP","WHIP","K/9","BB/9","HR/9","K%","BB%","xFIP","WAR"]
+    bat_features = ["AVG","OBP","SLG","OPS","R","HR","BB%","K%","wOBA","WAR"]
+    pit_features = ["ERA","FIP","WHIP","K/9","BB/9","xFIP","WAR"]
 
-    # Build pinnacle lookup dict for fast access
+    # Build pinnacle lookup by (date, home_team_abbr).
+    # The Odds API CSVs use full team names; ESPN schedules use abbreviations.
+    # We normalise full names → abbreviations so the join keys match.
     pi_lookup = {}
     if pinnacle_lines is not None and not pinnacle_lines.empty:
-        pi_lookup = pinnacle_lines.to_dict(orient="index")
+        pi_df = pinnacle_lines.copy()
+        if "commence_time" in pi_df.columns:
+            try:
+                import pandas as _pd
+                # Use UTC date directly — avoids tzdata dependency.
+                # Games typically have a UTC commence_time that matches ESPN's
+                # UTC-based date. A small number of late-night West Coast games
+                # may be off by one day but this is negligible for matching.
+                pi_df["_date"] = (_pd.to_datetime(pi_df["commence_time"], utc=True)
+                                   .dt.date.astype(str))
+            except Exception:
+                pi_df["_date"] = ""
+        else:
+            pi_df["_date"] = ""
+        for _, row in pi_df.iterrows():
+            raw_home = str(row.get("home_team", ""))
+            # Convert full name → abbreviation; fall back to raw value if unknown
+            home_abbr = FULL_NAME_TO_ABB.get(raw_home, raw_home)
+            key = (row.get("_date", ""), home_abbr)
+            pi_lookup[key] = row.to_dict()
 
     rows = []
     for _, game in schedules_df.iterrows():
@@ -385,8 +446,8 @@ def build_game_features(schedules_df, team_bat_df, team_pit_df, pinnacle_lines=N
             for feat in pit_features:
                 row[f"{prefix}{feat}"] = stats.get(feat, np.nan) if hasattr(stats, "get") else np.nan
 
-        # ── Pinnacle lines ────────────────────────────────────────────────
-        pi = pi_lookup.get(gid, {})
+        # ── Pinnacle lines: join on (date, home_team) ────────────────────
+        pi = pi_lookup.get((game.get("date",""), home_team), {})
         row["pi_open_ml_home"]           = pi.get("pi_open_ml_home", np.nan)
         row["pi_close_ml_home"]          = pi.get("pi_close_ml_home", np.nan)
         row["pi_close_ml_away"]          = pi.get("pi_close_ml_away", np.nan)
