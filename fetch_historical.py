@@ -1,6 +1,7 @@
 """
 fetch_historical.py - Pull 2021-2025 MLB data
 Uses ESPN API for game results (reliable, no scraping blocks)
+Now merges Pinnacle opening/closing lines + juice into game features.
 """
 import os, sys, time, warnings
 import pandas as pd
@@ -21,6 +22,10 @@ from config import HIST_DIR, TRAIN_YEARS
 DATA_DIR        = HIST_DIR
 HISTORICAL_PATH = os.path.join(HIST_DIR, "historical_stats.parquet")
 
+# ── CSV paths for historical lines (2021-2025) ─────────────────────────────
+# These CSVs must live in the same directory as this script (or update path).
+LINES_CSV_DIR = os.path.dirname(os.path.abspath(__file__))
+
 os.makedirs(DATA_DIR, exist_ok=True)
 
 HEADERS   = {"User-Agent": "Mozilla/5.0"}
@@ -29,6 +34,168 @@ ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb"
 ESPN_TO_STD = {
     "CWS":"CHW","KC":"KCR","SD":"SDP","SF":"SFG","TB":"TBR","WSH":"WSN"
 }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Pinnacle helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def american_to_prob(odds):
+    """Convert American odds → implied probability (no vig removal)."""
+    if odds is None or (isinstance(odds, float) and np.isnan(odds)):
+        return np.nan
+    odds = float(odds)
+    return 100 / (odds + 100) if odds > 0 else abs(odds) / (abs(odds) + 100)
+
+
+def pinnacle_no_vig_prob(ml_home, ml_away):
+    """
+    Remove vig from Pinnacle ML prices and return (home_prob, away_prob).
+    Returns (nan, nan) if either price is missing.
+    """
+    ph = american_to_prob(ml_home)
+    pa = american_to_prob(ml_away)
+    if np.isnan(ph) or np.isnan(pa):
+        return np.nan, np.nan
+    total = ph + pa
+    return ph / total, pa / total
+
+
+def load_pinnacle_lines_csv(years):
+    """
+    Load and normalise Pinnacle lines from the per-year CSV files.
+
+    Returns a DataFrame indexed by game_id with canonical columns:
+        pi_open_ml_home            – opening Pinnacle ML home (American)
+        pi_close_ml_home           – closing Pinnacle ML home (American)
+        pi_close_ml_away           – closing Pinnacle ML away (American)
+        pi_ml_movement             – closing − opening ML home
+        pi_open_spread_home        – opening Pinnacle spread (home line)
+        pi_close_spread_home       – closing Pinnacle spread (home line)
+        pi_spread_movement         – closing − opening spread
+        pi_close_spread_home_price – closing spread juice (home)
+        pi_close_spread_away_price – closing spread juice (away)
+        pi_open_total              – opening Pinnacle total line
+        pi_close_total             – closing Pinnacle total line
+        pi_total_movement          – closing − opening total
+        pi_close_total_over_price  – closing over juice
+        pi_close_total_under_price – closing under juice
+        pi_open_no_vig_home        – opening Pinnacle no-vig home win prob
+        pi_close_no_vig_home       – closing Pinnacle no-vig home win prob
+    """
+    frames = []
+    for yr in years:
+        csv_path = os.path.join(LINES_CSV_DIR, f"baseball_mlb_{yr}.csv")
+        if not os.path.exists(csv_path):
+            print(f"  [warn] Missing lines CSV for {yr}: {csv_path}")
+            continue
+
+        df = pd.read_csv(csv_path, low_memory=False)
+        cols = df.columns.tolist()
+
+        def pick(candidates):
+            """Return first candidate column that exists, else NaN series."""
+            for c in candidates:
+                if c in cols:
+                    return df[c]
+            return pd.Series(np.nan, index=df.index)
+
+        # Opening ML – prefer the deduplicated canonical column, fall back to _x/_y
+        open_ml_home = pick([
+            "opening_pinnacle_ml_home",
+            "opening_pinnacle_ml_home_x",
+            "opening_pinnacle_ml_home_y",
+        ])
+
+        # Closing ML – the closing_pinnacle_ml_home column is consistent across all years
+        close_ml_home = pick(["closing_pinnacle_ml_home"])
+
+        # Closing ML away – only present in pi_ml_away
+        close_ml_away = pick(["pi_ml_away"])
+
+        # Spreads
+        open_spread  = pick([
+            "opening_pinnacle_spread_home_line",
+            "opening_pinnacle_spread_home_line_x",
+        ])
+        close_spread = pick(["closing_pinnacle_spread_home_line"])
+
+        # Spread juice – from the pi_ (closing) columns
+        close_spread_home_price = pick(["pi_spread_home_price"])
+        close_spread_away_price = pick(["pi_spread_away_price"])
+
+        # Totals
+        open_total  = pick([
+            "opening_pinnacle_total_line",
+            "opening_pinnacle_total_line_x",
+        ])
+        close_total = pick(["closing_pinnacle_total_line"])
+
+        close_total_over  = pick(["pi_total_over_price"])
+        close_total_under = pick(["pi_total_under_price"])
+
+        # Line movements (pre-computed in the CSV)
+        ml_move     = pick(["pinnacle_ml_home_movement"])
+        spread_move = pick(["pinnacle_spread_home_line_movement"])
+        total_move  = pick(["pinnacle_total_line_movement"])
+
+        out = pd.DataFrame({
+            "game_id":                   df["game_id"],
+            "pi_open_ml_home":           pd.to_numeric(open_ml_home, errors="coerce"),
+            "pi_close_ml_home":          pd.to_numeric(close_ml_home, errors="coerce"),
+            "pi_close_ml_away":          pd.to_numeric(close_ml_away, errors="coerce"),
+            "pi_ml_movement":            pd.to_numeric(ml_move, errors="coerce"),
+            "pi_open_spread_home":       pd.to_numeric(open_spread, errors="coerce"),
+            "pi_close_spread_home":      pd.to_numeric(close_spread, errors="coerce"),
+            "pi_spread_movement":        pd.to_numeric(spread_move, errors="coerce"),
+            "pi_close_spread_home_price":pd.to_numeric(close_spread_home_price, errors="coerce"),
+            "pi_close_spread_away_price":pd.to_numeric(close_spread_away_price, errors="coerce"),
+            "pi_open_total":             pd.to_numeric(open_total, errors="coerce"),
+            "pi_close_total":            pd.to_numeric(close_total, errors="coerce"),
+            "pi_total_movement":         pd.to_numeric(total_move, errors="coerce"),
+            "pi_close_total_over_price": pd.to_numeric(close_total_over, errors="coerce"),
+            "pi_close_total_under_price":pd.to_numeric(close_total_under, errors="coerce"),
+        })
+
+        # Compute no-vig probabilities row-by-row
+        nv_open  = out.apply(
+            lambda r: pinnacle_no_vig_prob(r["pi_open_ml_home"],
+                                           american_to_prob_inv(r["pi_open_ml_home"])),
+            axis=1
+        )
+        # We only have closing away ML in the CSV; derive opening away from closing ratio isn't reliable.
+        # Use closing no-vig from the actual away column where available.
+        open_nv_home  = out["pi_open_ml_home"].apply(lambda v: american_to_prob(v))  # raw, not no-vig
+        close_nv_home, close_nv_away = zip(*out.apply(
+            lambda r: pinnacle_no_vig_prob(r["pi_close_ml_home"], r["pi_close_ml_away"]),
+            axis=1
+        ))
+
+        out["pi_open_implied_home"]  = open_nv_home   # raw implied (vig-on) for opening
+        out["pi_close_no_vig_home"]  = list(close_nv_home)
+        out["pi_close_no_vig_away"]  = list(close_nv_away)
+
+        frames.append(out)
+
+    if not frames:
+        return pd.DataFrame()
+
+    combined = pd.concat(frames, ignore_index=True)
+    # De-duplicate: keep the row with the most non-null pinnacle values per game_id
+    combined["_pi_completeness"] = combined.filter(like="pi_").notna().sum(axis=1)
+    combined = (combined.sort_values("_pi_completeness", ascending=False)
+                        .drop_duplicates(subset=["game_id"], keep="first")
+                        .drop(columns=["_pi_completeness"]))
+    return combined.set_index("game_id")
+
+
+def american_to_prob_inv(prob):
+    """Placeholder: not used – see pinnacle_no_vig_prob."""
+    return np.nan
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Existing fetch functions (unchanged)
+# ─────────────────────────────────────────────────────────────────────────────
 
 def fetch_team_batting(years):
     frames = []
@@ -129,13 +296,12 @@ def fetch_schedules(years):
                         ht    = ESPN_TO_STD.get(home["team"]["abbreviation"], home["team"]["abbreviation"])
                         at    = ESPN_TO_STD.get(away["team"]["abbreviation"], away["team"]["abbreviation"])
 
-                        # ── Pull the actual game date from the event ──────────
                         raw_date = ev.get("date","")
                         game_date = pd.to_datetime(raw_date, utc=True).date().isoformat() if raw_date else ""
 
                         rows.append({
                             "season":      yr,
-                            "date":        game_date,   # <-- preserved here
+                            "date":        game_date,
                             "game_id":     gid,
                             "fetch_team":  ht,
                             "opponent":    at,
@@ -157,7 +323,16 @@ def fetch_schedules(years):
             print(f"    [warn] No data for {yr}")
     return pd.concat(all_frames, ignore_index=True) if all_frames else pd.DataFrame()
 
-def build_game_features(schedules_df, team_bat_df, team_pit_df):
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Feature builder – now accepts pinnacle_lines lookup
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_game_features(schedules_df, team_bat_df, team_pit_df, pinnacle_lines=None):
+    """
+    Build one row per completed game.  If pinnacle_lines (DataFrame indexed by
+    game_id) is provided, all pi_* columns are joined in.
+    """
     print("  Building game-level features...")
     if schedules_df.empty:
         return pd.DataFrame()
@@ -173,6 +348,11 @@ def build_game_features(schedules_df, team_bat_df, team_pit_df):
     bat_features = ["AVG","OBP","SLG","OPS","R","HR","BB","SO","wRC+","wOBA","WAR"]
     pit_features = ["ERA","FIP","WHIP","K/9","BB/9","HR/9","K%","BB%","xFIP","WAR"]
 
+    # Build pinnacle lookup dict for fast access
+    pi_lookup = {}
+    if pinnacle_lines is not None and not pinnacle_lines.empty:
+        pi_lookup = pinnacle_lines.to_dict(orient="index")
+
     rows = []
     for _, game in schedules_df.iterrows():
         season    = int(game["season"])
@@ -180,11 +360,12 @@ def build_game_features(schedules_df, team_bat_df, team_pit_df):
         away_team = game["opponent"]
         rs        = float(game["runs_scored"])
         ra        = float(game["runs_allowed"])
+        gid       = game.get("game_id", "")
 
         row = {
             "season":    season,
-            "date":      game.get("date",""),   # <-- carried through to features
-            "game_id":   game.get("game_id",""),
+            "date":      game.get("date", ""),
+            "game_id":   gid,
             "home_team": home_team,
             "away_team": away_team,
             "home_runs": rs,
@@ -197,69 +378,116 @@ def build_game_features(schedules_df, team_bat_df, team_pit_df):
         for prefix, team in [("home_bat_", home_team), ("away_bat_", away_team)]:
             stats = bat_lookup.get((team, season), {})
             for feat in bat_features:
-                row[f"{prefix}{feat}"] = stats.get(feat, np.nan) if hasattr(stats,"get") else np.nan
+                row[f"{prefix}{feat}"] = stats.get(feat, np.nan) if hasattr(stats, "get") else np.nan
 
         for prefix, team in [("home_pit_", home_team), ("away_pit_", away_team)]:
             stats = pit_lookup.get((team, season), {})
             for feat in pit_features:
-                row[f"{prefix}{feat}"] = stats.get(feat, np.nan) if hasattr(stats,"get") else np.nan
+                row[f"{prefix}{feat}"] = stats.get(feat, np.nan) if hasattr(stats, "get") else np.nan
+
+        # ── Pinnacle lines ────────────────────────────────────────────────
+        pi = pi_lookup.get(gid, {})
+        row["pi_open_ml_home"]           = pi.get("pi_open_ml_home", np.nan)
+        row["pi_close_ml_home"]          = pi.get("pi_close_ml_home", np.nan)
+        row["pi_close_ml_away"]          = pi.get("pi_close_ml_away", np.nan)
+        row["pi_ml_movement"]            = pi.get("pi_ml_movement", np.nan)
+        row["pi_open_spread_home"]       = pi.get("pi_open_spread_home", np.nan)
+        row["pi_close_spread_home"]      = pi.get("pi_close_spread_home", np.nan)
+        row["pi_spread_movement"]        = pi.get("pi_spread_movement", np.nan)
+        row["pi_close_spread_home_price"]= pi.get("pi_close_spread_home_price", np.nan)
+        row["pi_close_spread_away_price"]= pi.get("pi_close_spread_away_price", np.nan)
+        row["pi_open_total"]             = pi.get("pi_open_total", np.nan)
+        row["pi_close_total"]            = pi.get("pi_close_total", np.nan)
+        row["pi_total_movement"]         = pi.get("pi_total_movement", np.nan)
+        row["pi_close_total_over_price"] = pi.get("pi_close_total_over_price", np.nan)
+        row["pi_close_total_under_price"]= pi.get("pi_close_total_under_price", np.nan)
+        row["pi_open_implied_home"]      = pi.get("pi_open_implied_home", np.nan)
+        row["pi_close_no_vig_home"]      = pi.get("pi_close_no_vig_home", np.nan)
+        row["pi_close_no_vig_away"]      = pi.get("pi_close_no_vig_away", np.nan)
 
         rows.append(row)
 
     return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Main
+# ─────────────────────────────────────────────────────────────────────────────
 
 def main():
     print("="*60)
     print("MLB Historical Data Fetch (2021-2025)")
     print("="*60)
 
-    print("\n[1/5] Team Batting Stats")
+    print("\n[1/6] Team Batting Stats")
     team_bat = fetch_team_batting(TRAIN_YEARS)
     print(f"  -> {len(team_bat)} rows")
 
-    print("\n[2/5] Team Pitching Stats")
+    print("\n[2/6] Team Pitching Stats")
     team_pit = fetch_team_pitching(TRAIN_YEARS)
     print(f"  -> {len(team_pit)} rows")
 
-    print("\n[3/5] Pitcher Individual Stats")
+    print("\n[3/6] Pitcher Individual Stats")
     pitcher_stats_df = fetch_pitcher_stats(TRAIN_YEARS)
     print(f"  -> {len(pitcher_stats_df)} rows")
 
-    print("\n[4/5] Batter Individual Stats")
+    print("\n[4/6] Batter Individual Stats")
     batter_stats_df = fetch_batter_stats(TRAIN_YEARS)
     print(f"  -> {len(batter_stats_df)} rows")
 
-    print("\n[5/5] Game Results (ESPN API)")
+    print("\n[5/6] Game Results (ESPN API)")
     schedules = fetch_schedules(TRAIN_YEARS)
     print(f"  -> {len(schedules)} total games")
 
-    print("\n[Building game features...]")
-    game_features = build_game_features(schedules, team_bat, team_pit)
+    print("\n[5b/6] Pinnacle Historical Lines (CSV)")
+    pinnacle_lines = load_pinnacle_lines_csv(TRAIN_YEARS)
+    if pinnacle_lines.empty:
+        print("  [warn] No Pinnacle lines loaded — pi_* features will be NaN")
+    else:
+        pi_coverage = pinnacle_lines["pi_close_no_vig_home"].notna().mean()
+        print(f"  -> {len(pinnacle_lines)} unique game_ids | "
+              f"closing no-vig coverage: {pi_coverage:.1%}")
+
+    print("\n[6/6] Building game features...")
+    game_features = build_game_features(schedules, team_bat, team_pit, pinnacle_lines)
     print(f"  -> {len(game_features)} game rows with features")
 
-    # Verify date column made it through
+    # Verify date and pi columns
     if "date" in game_features.columns:
         sample = game_features["date"].dropna().iloc[:3].tolist()
         print(f"  -> Date column confirmed: {sample}")
     else:
         print("  [warn] Date column missing from game features!")
 
+    pi_cols_present = [c for c in game_features.columns if c.startswith("pi_")]
+    if pi_cols_present:
+        nv_cov = game_features["pi_close_no_vig_home"].notna().mean()
+        print(f"  -> {len(pi_cols_present)} Pinnacle feature columns | "
+              f"no-vig coverage in output: {nv_cov:.1%}")
+    else:
+        print("  [warn] No Pinnacle columns in output!")
+
     print("\n[Saving data...]")
     if not team_bat.empty:
-        team_bat.to_parquet(os.path.join(DATA_DIR,"team_batting.parquet"), index=False)
+        team_bat.to_parquet(os.path.join(DATA_DIR, "team_batting.parquet"), index=False)
         print("  Saved team_batting.parquet")
     if not team_pit.empty:
-        team_pit.to_parquet(os.path.join(DATA_DIR,"team_pitching.parquet"), index=False)
+        team_pit.to_parquet(os.path.join(DATA_DIR, "team_pitching.parquet"), index=False)
         print("  Saved team_pitching.parquet")
     if not pitcher_stats_df.empty:
-        pitcher_stats_df.to_parquet(os.path.join(DATA_DIR,"pitcher_stats.parquet"), index=False)
+        pitcher_stats_df.to_parquet(os.path.join(DATA_DIR, "pitcher_stats.parquet"), index=False)
         print("  Saved pitcher_stats.parquet")
     if not batter_stats_df.empty:
-        batter_stats_df.to_parquet(os.path.join(DATA_DIR,"batter_stats.parquet"), index=False)
+        batter_stats_df.to_parquet(os.path.join(DATA_DIR, "batter_stats.parquet"), index=False)
         print("  Saved batter_stats.parquet")
     if not schedules.empty:
-        schedules.to_parquet(os.path.join(DATA_DIR,"schedules.parquet"), index=False)
+        schedules.to_parquet(os.path.join(DATA_DIR, "schedules.parquet"), index=False)
         print("  Saved schedules.parquet")
+    if not pinnacle_lines.empty:
+        pinnacle_lines.reset_index().to_parquet(
+            os.path.join(DATA_DIR, "pinnacle_lines.parquet"), index=False
+        )
+        print("  Saved pinnacle_lines.parquet")
     if not game_features.empty:
         game_features.to_parquet(HISTORICAL_PATH, index=False)
         print(f"  Saved historical_stats.parquet ({len(game_features)} game rows)")
