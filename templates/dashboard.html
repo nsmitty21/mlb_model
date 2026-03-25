@@ -227,18 +227,7 @@
   .pick-card.unit-2 { border-left: 3px solid var(--green); }
   .pick-card.unit-1 { border-left: 3px solid var(--blue); }
 
-  .pick-card.unit-3::after {
-    content: 'PRIME';
-    position: absolute; top: 12px; right: 12px;
-    font-family: 'DM Mono', monospace;
-    font-size: 9px;
-    letter-spacing: 2px;
-    background: var(--gold-dim);
-    color: var(--gold);
-    border: 1px solid var(--gold);
-    padding: 2px 7px;
-    border-radius: 3px;
-  }
+
 
   .pick-header {
     display: flex;
@@ -717,8 +706,10 @@ function renderPicks(picks) {
     return;
   }
 
-  d.textContent = picks[0].date || '';
-  c.innerHTML = picks.map((p, i) => buildPickCard(p, i)).join('');
+  const flatPicks = picks.flatMap(g => g.picks ? g.picks.map(p => ({...p, away_team: p.away_team||g.away_team, home_team: p.home_team||g.home_team, game_id: p.game_id||g.game_id, commence: p.commence||g.commence, date: p.date||g.date})) : [g]);
+  allPicks = flatPicks;
+  d.textContent = (flatPicks[0] && flatPicks[0].date) || '';
+  c.innerHTML = flatPicks.map((p, i) => buildPickCard(p, i)).join('');
 }
 
 function buildPickCard(p, idx) {
@@ -726,15 +717,15 @@ function buildPickCard(p, idx) {
   const stars = Array(p.units).fill(`<span class="unit-star ${starColor}">★</span>`).join('');
 
   let pickLabel = '';
-  if (p.market === 'moneyline') pickLabel = `${p.team} ML`;
-  else if (p.market === 'run_line') pickLabel = `${p.team} ${p.spread || ''}`;
-  else pickLabel = `${p.home_team}/${p.away_team} ${p.team}`;
+  if (p.type === 'ML') pickLabel = `${p.team} ML`;
+  else if (p.type === 'SPREAD') pickLabel = `${p.team} ${p.spread > 0 ? '+' : ''}${p.spread || ''}`;
+  else pickLabel = `${p.direction} ${p.total_line}`;
 
   const bookClass = p.book.replace(/\s/g,'').toLowerCase();
   const oddsStr = p.odds ? (p.odds > 0 ? `+${Math.round(p.odds)}` : `${Math.round(p.odds)}`) : '—';
   const edgePct = Math.min(p.edge / 15 * 100, 100);
 
-  const mktLabel = {moneyline:'Moneyline', run_line:'Run Line', totals:'Totals'}[p.market] || p.market;
+  const mktLabel = {ML:'Moneyline', SPREAD:'Run Line', TOTAL:'Totals'}[p.type] || p.type;
   const timeStr = p.commence ? new Date(p.commence).toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit', timeZoneName:'short'}) : '';
 
   const pitcherLine = (p.home_pitcher || p.away_pitcher) ?
@@ -742,7 +733,7 @@ function buildPickCard(p, idx) {
 
   // Check if already logged
   const alreadyLogged = allBetLog.some(b =>
-    b.game_id === p.game_id && b.market === p.market && b.side === p.side
+    b.game_id === p.game_id && b.type === p.type && b.side === p.side
   );
 
   return `
@@ -753,9 +744,12 @@ function buildPickCard(p, idx) {
         <div class="pick-team">${pickLabel}</div>
         ${pitcherLine}
       </div>
-      <div>
-        <div class="units-badge">${stars}</div>
-        <div style="text-align:right;margin-top:4px;font-family:'DM Mono',monospace;font-size:20px;color:var(--text);">${oddsStr}</div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <div class="units-badge">${stars}</div>
+          ${p.units === 3 ? '<span style="font-family:\'DM Mono\',monospace;font-size:9px;letter-spacing:2px;background:var(--gold-dim);color:var(--gold);border:1px solid var(--gold);padding:2px 7px;border-radius:3px;">PRIME</span>' : ''}
+        </div>
+        <div style="font-family:'DM Mono',monospace;font-size:20px;color:var(--text);">${oddsStr}</div>
       </div>
     </div>
 
@@ -764,7 +758,7 @@ function buildPickCard(p, idx) {
     <div class="pick-grid">
       <div class="pick-stat">
         <div class="pick-stat-label">Model</div>
-        <div class="pick-stat-val">${p.model_prob}%</div>
+        <div class="pick-stat-val">${p.type === 'TOTAL' ? (p.pred_total ? p.pred_total + ' R' : '—') : (p.model_prob != null ? p.model_prob + '%' : '—')}</div>
       </div>
       <div class="pick-stat">
         <div class="pick-stat-label">Book</div>
@@ -783,7 +777,7 @@ function buildPickCard(p, idx) {
     <div class="pick-footer">
       <span class="market-badge">${mktLabel}</span>
       <span class="book-badge ${bookClass}">${p.book}</span>
-      ${p.market === 'totals' && p.pred_total ? `<span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--muted);">Model: ${p.pred_total} runs</span>` : ''}
+      ${p.type === 'TOTAL' && p.pred_total ? `<span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--muted);">Model: ${p.pred_total} runs</span>` : ''}
       <button class="btn btn-log ${alreadyLogged ? 'secondary' : ''}"
         ${alreadyLogged ? 'disabled' : ''}
         onclick="logBet(${idx})">
@@ -896,9 +890,9 @@ function renderBetLog(bets) {
     const edgeStr = b.edge ? `+${b.edge}%` : '—';
 
     let pickStr = '';
-    if (b.market==='moneyline') pickStr = `${b.team} ML`;
-    else if (b.market==='run_line') pickStr = `${b.team} ${b.spread||''}`;
-    else pickStr = `${b.home_team}/${b.away_team} ${b.team}`;
+    if (b.type==='ML') pickStr = `${b.team} ML`;
+    else if (b.type==='SPREAD') pickStr = `${b.team} ${b.spread||''}`;
+    else pickStr = `${b.direction||''} ${b.total_line||''}`;
 
     const scoreStr = b.home_score != null ?
       `${b.away_score}–${b.home_score}` : '—';

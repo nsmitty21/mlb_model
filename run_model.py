@@ -111,9 +111,10 @@ def units_for_edge(e):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def load_team_stats():
+    from config import HIST_DIR
     bat, pit = {}, {}
-    bp = os.path.join(DATA_DIR, "team_batting.parquet")
-    pp = os.path.join(DATA_DIR, "team_pitching.parquet")
+    bp = os.path.join(HIST_DIR, "team_batting.parquet")
+    pp = os.path.join(HIST_DIR, "team_pitching.parquet")
     if os.path.exists(bp):
         df = pd.read_parquet(bp)
         if "team" in df.columns:
@@ -221,11 +222,19 @@ def predict(row, models):
 
 
 def load_models():
-    m = {}
-    for s in ["win", "diff", "total"]:
-        p = MODEL_PATH.replace(".joblib", f"_{s}.joblib")
-        m[s] = joblib.load(p) if os.path.exists(p) else None
-    return m
+    if not os.path.exists(MODEL_PATH):
+        print(f"  [ERROR] Model file not found: {MODEL_PATH}")
+        return {"win": None, "diff": None, "total": None}
+    try:
+        bundle = joblib.load(MODEL_PATH)
+        return {
+            "win":   bundle.get("ml"),
+            "diff":  bundle.get("rl"),
+            "total": bundle.get("totals"),
+        }
+    except Exception as e:
+        print(f"  [ERROR] Model load failed: {e}")
+        return {"win": None, "diff": None, "total": None}
 
 
 # ─────────────────────────────────────────────────────────────────────────────

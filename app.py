@@ -30,7 +30,7 @@ def load_picks():
     if not Path(PICKS_PATH).exists(): return []
     try:
         with open(PICKS_PATH) as f:
-            return json.load(f).get("picks", [])
+            return json.load(f).get("games", [])
     except Exception: return []
 
 def load_bet_log():
