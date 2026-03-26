@@ -1,14 +1,35 @@
 """
 run_model.py — Generate Today's MLB Picks
-Loads lines, runs 3 models, applies edge thresholds, writes today_picks.json
+Loads lines, runs 3 models, applies edge thresholds, writes picks_today.json
 
 Pinnacle integration:
-  - Edge calculation now uses Pinnacle's no-vig closing probability as the
+  - Edge calculation uses Pinnacle's no-vig closing probability as the
     true-market benchmark instead of a FD/DK no-vig blend.
-  - Pinnacle market features are included in the feature row sent to models
-    (pi_close_no_vig_home, pi_open_implied_home, movement columns,
-     pi_close_total) — must match the feature order used in train_model.py.
+  - Pinnacle market features are included in the feature row sent to models.
   - Falls back to FD/DK no-vig if Pinnacle lines are unavailable for a game.
+
+Fixes (2026-03-26 v2):
+  - BUG 1 (prev): scaler.joblib now loaded and applied in predict().
+  - BUG 2 (prev): Sigmoid slopes flattened to reduce sensitivity.
+  - BUG 3 (prev): MAX_EDGE_PCT cap (25%) kills runaway edges.
+  - BUG 4 (NEW):  Data-quality gate — games where >50% of team-stat features
+                  are missing/zero are skipped entirely. This is the root cause
+                  of all picks being underdog MLs: when 2026 stats haven't
+                  populated, every feature row is all-zeros → model outputs a
+                  near-constant ~55% for every away team → large fake edges
+                  only appear on underdogs (whose book_prob is low).
+  - BUG 5 (NEW):  Constant-probability detector — if 3+ ML picks share the
+                  same model_prob within 0.5pp, the run is aborted before
+                  saving any picks (dead giveaway of all-zero feature rows).
+  - BUG 6 (NEW):  MIN_EDGE_FOR_3U raised from 10% to 15% to reflect that a
+                  genuine mismatch edge should be rare. Config aliases kept for
+                  backward compat; the stricter constant is enforced here.
+  - BUG 7 (NEW):  Home-field boost was double-counted. The model was trained
+                  with home_field=1 as a feature, so it already prices home
+                  advantage. The additional 2% boost is now removed from the
+                  edge calculation path. The config constant is kept so the
+                  dashboard still displays correctly, but it is NOT applied
+                  before comparing to book_prob.
 """
 import os, sys, json, warnings
 import numpy as np, pandas as pd, joblib
@@ -20,6 +41,26 @@ from config import (DATA_DIR, MODELS_DIR, LINES_PATH, PICKS_PATH, MODEL_PATH,
 
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(LOGS_DIR, exist_ok=True)
+
+# ── Edge caps ──────────────────────────────────────────────────────────────────
+# Anything above MAX_EDGE_PCT is almost certainly a data or scaling artifact.
+MAX_EDGE_PCT = 25.0
+
+# 3U should only fire on true mismatches. Override the config threshold here
+# so that ~55% model output (which happens when features are all-zero or nearly
+# so) cannot mechanically reach 3U just because a dog has low book_prob.
+MIN_EDGE_3U = max(EDGE_3U, 15.0)   # never lower than 15%, even if config says 10%
+MIN_EDGE_2U = EDGE_2U               # 7% stays reasonable
+MIN_EDGE_1U = EDGE_1U               # 5% floor
+
+# Minimum fraction of TEAM_FEATURE_COLS that must be non-zero for a game row
+# to be considered usable. Below this → model is running blind.
+MIN_FEATURE_FILL_FRAC = 0.50
+
+# If ≥ this many ML picks share the same model_prob within PROB_CLUSTER_BAND,
+# the entire run is aborted.
+PROB_CLUSTER_MIN_COUNT = 3
+PROB_CLUSTER_BAND      = 0.5        # percentage-points
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Feature definitions — must stay in sync with train_model.py
@@ -70,20 +111,10 @@ def no_vig(mh, ma):
 
 
 def pinnacle_no_vig(pi_ml_home, pi_ml_away):
-    """
-    Derive Pinnacle no-vig probabilities.
-    Preferred over FD/DK because Pinnacle carries minimal vig and reflects
-    sharp-money consensus more accurately.
-    """
     return no_vig(pi_ml_home, pi_ml_away)
 
 
 def best_book_prob(side, books):
-    """
-    Return the best (lowest-vig) implied probability for a side.
-    Priority: Pinnacle > FanDuel > DraftKings.
-    Used as fallback when Pinnacle no-vig can't be computed.
-    """
     for bk in ["pinnacle", "fanduel", "draftkings"]:
         if bk not in books:
             continue
@@ -100,9 +131,9 @@ def calc_edge(mp, bp):
 
 
 def units_for_edge(e):
-    if e >= EDGE_3U: return 3
-    if e >= EDGE_2U: return 2
-    if e >= EDGE_1U: return 1
+    if e >= MIN_EDGE_3U: return 3
+    if e >= MIN_EDGE_2U: return 2
+    if e >= MIN_EDGE_1U: return 1
     return 0
 
 
@@ -110,11 +141,69 @@ def units_for_edge(e):
 # Team stats
 # ─────────────────────────────────────────────────────────────────────────────
 
+
+# ── Team name normalization ───────────────────────────────────────────────────
+# The Odds API returns full names ("New York Mets"); pybaseball stores
+# abbreviations ("NYM").  This map lets us look up either form.
+FULL_NAME_TO_ABB = {
+    "Arizona Diamondbacks":  "ARI",
+    "Atlanta Braves":        "ATL",
+    "Baltimore Orioles":     "BAL",
+    "Boston Red Sox":        "BOS",
+    "Chicago Cubs":          "CHC",
+    "Chicago White Sox":     "CHW",
+    "Cincinnati Reds":       "CIN",
+    "Cleveland Guardians":   "CLE",
+    "Colorado Rockies":      "COL",
+    "Detroit Tigers":        "DET",
+    "Houston Astros":        "HOU",
+    "Kansas City Royals":    "KCR",
+    "Los Angeles Angels":    "LAA",
+    "Los Angeles Dodgers":   "LAD",
+    "Miami Marlins":         "MIA",
+    "Milwaukee Brewers":     "MIL",
+    "Minnesota Twins":       "MIN",
+    "New York Mets":         "NYM",
+    "New York Yankees":      "NYY",
+    "Oakland Athletics":     "OAK",
+    "Athletics":             "OAK",
+    "Philadelphia Phillies": "PHI",
+    "Pittsburgh Pirates":    "PIT",
+    "San Diego Padres":      "SDP",
+    "San Francisco Giants":  "SFG",
+    "Seattle Mariners":      "SEA",
+    "St. Louis Cardinals":   "STL",
+    "Tampa Bay Rays":        "TBR",
+    "Texas Rangers":         "TEX",
+    "Toronto Blue Jays":     "TOR",
+    "Washington Nationals":  "WSN",
+}
+
+def normalize_team(name: str) -> str:
+    """Return the canonical key used in the bat/pit dicts.
+
+    pybaseball uses 3-letter abbreviations as the 'Team' column, so
+    team stats are stored under keys like 'NYM', 'PIT', etc.
+    The Odds API returns full names ('New York Mets').  Convert if needed.
+    """
+    return FULL_NAME_TO_ABB.get(name, name)
+
+
 def load_team_stats():
-    from config import HIST_DIR
+    from config import HIST_DIR, LIVE_DIR
     bat, pit = {}, {}
-    bp = os.path.join(HIST_DIR, "team_batting.parquet")
-    pp = os.path.join(HIST_DIR, "team_pitching.parquet")
+
+    # Prefer live parquets (more recent) but fall back to historical
+    def _best_path(filename):
+        live = os.path.join(LIVE_DIR, filename)
+        hist = os.path.join(HIST_DIR, filename)
+        if os.path.exists(live):
+            return live
+        return hist
+
+    bp = _best_path("team_batting.parquet")
+    pp = _best_path("team_pitching.parquet")
+
     if os.path.exists(bp):
         df = pd.read_parquet(bp)
         if "team" in df.columns:
@@ -135,20 +224,17 @@ def load_team_stats():
 # ─────────────────────────────────────────────────────────────────────────────
 
 def build_row(home, away, bat, pit, game=None):
-    """
-    Build a feature row for one game.
-
-    game (dict): the game object from lines JSON.  If it contains Pinnacle
-                 fields, they are added to the row so the model can use them.
-    """
     row = {}
 
-    # ── Team batting / pitching features ──────────────────────────────────
-    for pfx, tm in [("home_bat_", home), ("away_bat_", away)]:
+    # Normalize full names ("New York Mets") → abbreviations ("NYM")
+    home_key = normalize_team(home)
+    away_key = normalize_team(away)
+
+    for pfx, tm in [("home_bat_", home_key), ("away_bat_", away_key)]:
         s = bat.get(tm, {})
         for f in BATTING_FEATS:
             row[f"{pfx}{f}"] = s.get(f, np.nan)
-    for pfx, tm in [("home_pit_", home), ("away_pit_", away)]:
+    for pfx, tm in [("home_pit_", home_key), ("away_pit_", away_key)]:
         s = pit.get(tm, {})
         for f in PITCHING_FEATS:
             row[f"{pfx}{f}"] = s.get(f, np.nan)
@@ -165,9 +251,6 @@ def build_row(home, away, bat, pit, game=None):
         else:
             row[f"diff_pit_{f}"] = np.nan
 
-    # ── Pinnacle features ─────────────────────────────────────────────────
-    # Extracted from the lines JSON; pull_lines.py should populate these
-    # from the Pinnacle book entry.  Neutral defaults used when unavailable.
     books = (game or {}).get("books", {})
     pi    = books.get("pinnacle", {})
 
@@ -175,12 +258,11 @@ def build_row(home, away, bat, pit, game=None):
     pi_ml_away = pi.get("ml_away")
     pi_nv_home, _ = pinnacle_no_vig(pi_ml_home, pi_ml_away)
 
-    # Opening lines — pull_lines.py should store these under game["pinnacle_open"]
     pi_open = (game or {}).get("pinnacle_open", {})
     pi_open_ml_home = pi_open.get("ml_home")
-    pi_open_implied = american_to_prob(pi_open_ml_home)  # raw, vig-on
+    pi_open_implied = american_to_prob(pi_open_ml_home)
 
-    row["pi_close_no_vig_home"]  = pi_nv_home   if pi_nv_home is not None  else 0.5
+    row["pi_close_no_vig_home"]  = pi_nv_home    if pi_nv_home is not None   else 0.5
     row["pi_open_implied_home"]  = pi_open_implied if pi_open_implied is not None else 0.5
     row["pi_ml_movement"]        = (game or {}).get("pinnacle_ml_movement", 0.0) or 0.0
     row["pi_spread_movement"]    = (game or {}).get("pinnacle_spread_movement", 0.0) or 0.0
@@ -188,6 +270,31 @@ def build_row(home, away, bat, pit, game=None):
     row["pi_close_total"]        = pi.get("total") or (game or {}).get("total") or 8.5
 
     return row
+
+
+def check_feature_quality(row, home, away):
+    """
+    Return (ok: bool, fill_frac: float, message: str).
+
+    Checks that a meaningful fraction of TEAM_FEATURE_COLS (excluding
+    home_field which is always 1) are non-zero and non-NaN.  When the 2026
+    season stats haven't populated yet every raw team stat will be NaN →
+    fillna(0) makes them all zero → model outputs a near-constant probability
+    → every underdog generates a large fake edge.
+    """
+    check_cols = [c for c in TEAM_FEATURE_COLS if c != "home_field"]
+    non_zero = sum(
+        1 for c in check_cols
+        if c in row and not (isinstance(row[c], float) and np.isnan(row[c]))
+        and row[c] != 0
+    )
+    frac = non_zero / len(check_cols) if check_cols else 0.0
+    ok   = frac >= MIN_FEATURE_FILL_FRAC
+    msg  = (
+        f"{home} vs {away}: {non_zero}/{len(check_cols)} team features populated "
+        f"({frac:.0%}) — {'OK' if ok else 'SKIPPED (insufficient data)'}"
+    )
+    return ok, frac, msg
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -200,6 +307,13 @@ def predict(row, models):
         if c not in X.columns:
             X[c] = np.nan
     X = X[FEATURE_COLS].astype(float).fillna(0)
+
+    scaler = models.get("scaler")
+    if scaler is not None:
+        X = pd.DataFrame(scaler.transform(X), columns=FEATURE_COLS)
+    else:
+        print("  [WARN] No scaler loaded — regressor predictions may be unreliable")
+
     res = {}
     if models.get("win"):
         try:
@@ -224,17 +338,27 @@ def predict(row, models):
 def load_models():
     if not os.path.exists(MODEL_PATH):
         print(f"  [ERROR] Model file not found: {MODEL_PATH}")
-        return {"win": None, "diff": None, "total": None}
+        return {"win": None, "diff": None, "total": None, "scaler": None}
     try:
         bundle = joblib.load(MODEL_PATH)
+
+        scaler = None
+        scaler_path = os.path.join(MODELS_DIR, "scaler.joblib")
+        if os.path.exists(scaler_path):
+            scaler = joblib.load(scaler_path)
+            print(f"  Scaler loaded from {scaler_path}")
+        else:
+            print(f"  [WARN] scaler.joblib not found at {scaler_path} — predictions will be off")
+
         return {
-            "win":   bundle.get("ml"),
-            "diff":  bundle.get("rl"),
-            "total": bundle.get("totals"),
+            "win":    bundle.get("ml"),
+            "diff":   bundle.get("rl"),
+            "total":  bundle.get("totals"),
+            "scaler": scaler,
         }
     except Exception as e:
         print(f"  [ERROR] Model load failed: {e}")
-        return {"win": None, "diff": None, "total": None}
+        return {"win": None, "diff": None, "total": None, "scaler": None}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -242,19 +366,11 @@ def load_models():
 # ─────────────────────────────────────────────────────────────────────────────
 
 def resolve_book_prob_ml(side, books):
-    """
-    Return (benchmark_prob, source_label) for a ML side.
-
-    Hierarchy:
-      1. Pinnacle no-vig (sharpest, lowest vig)
-      2. FanDuel/DraftKings no-vig blend
-    """
     pi = books.get("pinnacle", {})
     ph, pa = pinnacle_no_vig(pi.get("ml_home"), pi.get("ml_away"))
     if ph is not None:
         return (ph if side == "home" else pa), "pinnacle_no_vig"
 
-    # Fallback: FD/DK no-vig
     for bk in ["fanduel", "draftkings"]:
         if bk in books:
             h, a = no_vig(books[bk].get("ml_home"), books[bk].get("ml_away"))
@@ -264,7 +380,6 @@ def resolve_book_prob_ml(side, books):
 
 
 def resolve_best_odds_ml(side, books):
-    """Return (best_odds, book) — highest payout for this side."""
     best_ml, best_bk = None, None
     for bk in ["fanduel", "draftkings", "pinnacle"]:
         if bk in books:
@@ -280,17 +395,29 @@ def resolve_best_odds_ml(side, books):
 
 def generate_picks(games, models, bat, pit):
     picks = []
+    skipped_data = 0
+
     for g in games:
         ht, at = g["home_team"], g["away_team"]
         books  = g.get("books", {})
         row    = build_row(ht, at, bat, pit, game=g)
+
+        # ── BUG 4 FIX: Data-quality gate ──────────────────────────────────
+        ok, fill_frac, quality_msg = check_feature_quality(row, ht, at)
+        print(f"  [DATA] {quality_msg}")
+        if not ok:
+            skipped_data += 1
+            continue
+
         preds  = predict(row, models)
         hwp, awp = preds.get("hwp"), preds.get("awp")
         pdiff, ptot = preds.get("pred_run_diff"), preds.get("pred_total")
 
-        if hwp:
-            hwp = min(0.95, hwp + HOME_FIELD_WIN_PCT_BOOST)
-            awp = 1.0 - hwp
+        # ── BUG 7 FIX: Do NOT apply home-field boost before edge calc ─────
+        # The model was trained with home_field=1 as a feature, so home
+        # advantage is already priced into hwp/awp.  Adding 2% on top is
+        # double-counting and inflates the apparent edge for away teams.
+        # The boost constant in config is kept for display/dashboard use only.
 
         gpicks = []
 
@@ -308,6 +435,11 @@ def generate_picks(games, models, bat, pit):
                 continue
 
             edge  = calc_edge(mp, bp)
+
+            if edge > MAX_EDGE_PCT:
+                print(f"  [SKIP] {team} ML edge {edge:.1f}% exceeds cap — possible data issue")
+                continue
+
             units = units_for_edge(edge)
             if units > 0:
                 gpicks.append({
@@ -324,7 +456,7 @@ def generate_picks(games, models, bat, pit):
                     "units":        units,
                 })
 
-        # ── Spread ───────────────────────────────────────────────────────
+        # ── Spread ────────────────────────────────────────────────────────
         sh = g.get("spread_home")
         if sh is not None and pdiff is not None:
             for side, spread, md in [("home", sh, pdiff), ("away", -sh, -pdiff)]:
@@ -338,13 +470,17 @@ def generate_picks(games, models, bat, pit):
                 if best_j is None:
                     best_j, best_bk = -110, "fanduel"
 
-                # Use Pinnacle spread juice as benchmark when available
-                pi = books.get("pinnacle", {})
+                pi   = books.get("pinnacle", {})
                 pi_j = pi.get(f"spread_juice_{side}")
                 bp   = american_to_prob(pi_j) if pi_j else (american_to_prob(best_j) or 0.524)
 
-                cp    = 1 / (1 + np.exp(-(md + spread) * 0.3))
+                cp    = 1 / (1 + np.exp(-(md + spread) * 0.18))
                 edge  = calc_edge(cp, bp)
+
+                if edge > MAX_EDGE_PCT:
+                    print(f"  [SKIP] {team} spread edge {edge:.1f}% exceeds cap — possible data issue")
+                    continue
+
                 units = units_for_edge(edge)
                 if units > 0:
                     gpicks.append({
@@ -363,17 +499,15 @@ def generate_picks(games, models, bat, pit):
                     })
 
         # ── Totals ────────────────────────────────────────────────────────
-        # Use Pinnacle's closing total as the line benchmark when available
         pi       = books.get("pinnacle", {})
         pi_total = pi.get("total")
-        tl       = pi_total or g.get("total")   # prefer Pinnacle line
+        tl       = pi_total or g.get("total")
 
         if tl is not None and ptot is not None:
             diff_from_line = ptot - tl
             for direction, diff in [("over", diff_from_line), ("under", -diff_from_line)]:
-                op = 1 / (1 + np.exp(-diff * 0.25))
+                op = 1 / (1 + np.exp(-diff * 0.15))
 
-                # Benchmark: Pinnacle juice > FD/DK juice
                 pi_j = pi.get(f"total_{direction}_juice")
                 if pi_j:
                     bp = american_to_prob(pi_j) or 0.524
@@ -387,7 +521,6 @@ def generate_picks(games, models, bat, pit):
                                 best_j, bk_used = j, bk
                     bp = (american_to_prob(best_j) or 0.524) if best_j else 0.524
 
-                # Best available odds for the bet itself
                 best_j_bet, best_bk_bet = None, None
                 for bk in ["fanduel", "draftkings", "pinnacle"]:
                     if bk in books:
@@ -398,6 +531,11 @@ def generate_picks(games, models, bat, pit):
                     best_j_bet, best_bk_bet = -110, "fanduel"
 
                 edge  = calc_edge(op, bp)
+
+                if edge > MAX_EDGE_PCT:
+                    print(f"  [SKIP] {ht}/{at} total {direction} edge {edge:.1f}% exceeds cap — possible data issue")
+                    continue
+
                 units = units_for_edge(edge)
                 if units > 0:
                     gpicks.append({
@@ -424,7 +562,49 @@ def generate_picks(games, models, bat, pit):
                 "away_team": at,
                 "picks":     sorted(gpicks, key=lambda x: x["units"], reverse=True),
             })
+
+    if skipped_data:
+        print(f"\n  [WARN] {skipped_data} game(s) skipped due to missing team stats.")
+        print("         Run fetch_historical.py or check data/live/ parquet files.")
+
     return picks
+
+
+def detect_probability_clustering(picks):
+    """
+    BUG 5 FIX: Abort if multiple ML picks share the same model_prob within
+    PROB_CLUSTER_BAND percentage-points — dead giveaway that the model is
+    receiving all-zero feature rows and outputting a near-constant prediction.
+    Returns (clustered: bool, message: str).
+    """
+    ml_probs = [
+        p["model_prob"]
+        for g in picks
+        for p in g["picks"]
+        if p["type"] == "ML" and "model_prob" in p
+    ]
+    if len(ml_probs) < PROB_CLUSTER_MIN_COUNT:
+        return False, ""
+
+    # Count how many fall within any band of width PROB_CLUSTER_BAND
+    ml_probs_sorted = sorted(ml_probs)
+    for i in range(len(ml_probs_sorted)):
+        cluster = [
+            p for p in ml_probs_sorted
+            if abs(p - ml_probs_sorted[i]) <= PROB_CLUSTER_BAND
+        ]
+        if len(cluster) >= PROB_CLUSTER_MIN_COUNT:
+            msg = (
+                f"CLUSTER DETECTED: {len(cluster)} ML picks share model_prob "
+                f"≈ {ml_probs_sorted[i]:.1f}% (within {PROB_CLUSTER_BAND}pp). "
+                f"This means the model is receiving near-identical feature rows — "
+                f"almost certainly because team stats for today's games are missing. "
+                f"Picks NOT saved. Fix: re-run fetch_historical.py and confirm "
+                f"data/live/team_batting.parquet contains 2026 rows."
+            )
+            return True, msg
+
+    return False, ""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -438,6 +618,7 @@ def main():
     args, _ = parser.parse_known_args()
     td = args.date or date.today().isoformat()
     print(f"MLB Model Run — {td}")
+    print(f"  Edge thresholds: 1U≥{MIN_EDGE_1U}%  2U≥{MIN_EDGE_2U}%  3U≥{MIN_EDGE_3U}%")
 
     if not os.path.exists(LINES_PATH):
         print("[ERROR] Run: python pull_lines.py")
@@ -446,7 +627,6 @@ def main():
         games = json.load(f)
     print(f"  {len(games)} games loaded")
 
-    # Report Pinnacle availability in today's lines
     pi_games = sum(1 for g in games if "pinnacle" in g.get("books", {}))
     print(f"  Pinnacle lines available: {pi_games}/{len(games)} games")
 
@@ -457,11 +637,40 @@ def main():
     bat, pit = load_team_stats()
     print(f"  Teams — bat:{len(bat)} pit:{len(pit)}")
 
-    picks   = generate_picks(games, models, bat, pit)
-    all_p   = [p for g in picks for p in g["picks"]]
+    if len(bat) == 0 or len(pit) == 0:
+        print("[ERROR] No team stats loaded — cannot generate picks.")
+        print("        Run fetch_historical.py to populate data/historical/ parquets.")
+        sys.exit(1)
+
+    picks = generate_picks(games, models, bat, pit)
+
+    # ── BUG 5 FIX: Probability clustering check ───────────────────────────
+    clustered, cluster_msg = detect_probability_clustering(picks)
+    if clustered:
+        print(f"\n  [ABORT] {cluster_msg}")
+        sys.exit(1)
+
+    all_p = [p for g in picks for p in g["picks"]]
     print(f"\n  3U: {sum(1 for p in all_p if p['units']==3)}"
           f"  2U: {sum(1 for p in all_p if p['units']==2)}"
           f"  1U: {sum(1 for p in all_p if p['units']==1)}")
+
+    # ── Pick-mix sanity check ──────────────────────────────────────────────
+    ml_picks     = [p for p in all_p if p["type"] == "ML"]
+    away_ml      = [p for p in ml_picks if p["side"] == "away"]
+    three_u_pct  = sum(1 for p in all_p if p["units"] == 3) / max(len(all_p), 1)
+
+    if len(ml_picks) > 0 and len(away_ml) == len(ml_picks):
+        print("  [WARN] Every ML pick is an away team — "
+              "verify team stats are populated for home teams.")
+    if three_u_pct > 0.70 and len(all_p) >= 4:
+        print(f"  [WARN] {three_u_pct:.0%} of picks are 3U — unusually high. "
+              "Review picks manually before betting.")
+
+    spread_picks = [p for p in all_p if p["type"] == "SPREAD"]
+    if len(ml_picks) > 0 and len(spread_picks) == 0:
+        print("  [INFO] No spread picks generated — run_diff model may be "
+              "under-powered or spread juice is too tight today.")
 
     out = {
         "generated_at": datetime.now().isoformat(),
@@ -471,7 +680,7 @@ def main():
     }
     with open(PICKS_PATH, "w") as f:
         json.dump(out, f, indent=2)
-    print(f"Saved to today_picks.json | Run: python app.py")
+    print(f"Saved to picks_today.json | Run: python app.py")
 
 
 if __name__ == "__main__":
