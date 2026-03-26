@@ -1,0 +1,6 @@
+Injury Logic
+
+Batter vs pitcher history (scrape baseball-reference or ESPN)
+
+Get rid of bets over certain threshold edge (if higher than 10% or something like that)
+
