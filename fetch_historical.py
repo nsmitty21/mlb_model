@@ -277,6 +277,101 @@ def fetch_team_pitching(years):
             break
     return out
 
+def fetch_live_season_stats(live_year=None, fallback_year=None, min_games=15):
+    """
+    Fetch current-season team batting and pitching stats for the live year.
+
+    Because pybaseball's team_batting/team_pitching pull season aggregates,
+    very early in a season (days 1-14) the sample is too small to be meaningful.
+    Strategy:
+      1. Try to pull live_year stats.
+      2. If the average games-played across teams is below min_games, log a
+         warning and fall back to fallback_year end-of-season stats instead.
+      3. Save both parquets to LIVE_DIR so run_model.py picks them up on the
+         next run without touching the historical parquets in HIST_DIR.
+
+    Returns (team_bat_df, team_pit_df).  Both DataFrames have a 'team' column
+    (3-letter abbreviation) and a 'season' column.
+    """
+    from config import LIVE_DIR, TRAIN_YEARS
+    import os
+
+    if live_year is None:
+        import datetime
+        live_year = datetime.date.today().year
+    if fallback_year is None:
+        fallback_year = live_year - 1
+
+    os.makedirs(LIVE_DIR, exist_ok=True)
+
+    def _normalise(df):
+        """Rename Team/teamName → team; drop rows where team is NaN."""
+        for col in ["Team", "teamName"]:
+            if col in df.columns and "team" not in df.columns:
+                df = df.rename(columns={col: "team"})
+        if "team" not in df.columns:
+            df["team"] = "UNK"
+        return df.dropna(subset=["team"])
+
+    def _try_fetch(year):
+        try:
+            bat = _normalise(team_batting(year))
+            pit = _normalise(team_pitching(year))
+            bat["season"] = year
+            pit["season"] = year
+            return bat, pit
+        except Exception as e:
+            print(f"  [warn] Could not fetch {year} stats: {e}")
+            return pd.DataFrame(), pd.DataFrame()
+
+    print(f"\n[Live stats] Fetching {live_year} team stats...")
+    bat, pit = _try_fetch(live_year)
+
+    # Check whether we have enough games to trust the numbers.
+    # "G" is the games-played column in pybaseball team_batting output.
+    use_fallback = False
+    if bat.empty or pit.empty:
+        print(f"  [warn] {live_year} returned empty — using {fallback_year} fallback")
+        use_fallback = True
+    else:
+        avg_g = bat["G"].mean() if "G" in bat.columns else min_games
+        if avg_g < min_games:
+            print(f"  [warn] {live_year} only {avg_g:.0f} avg games played "
+                  f"(threshold {min_games}) — using {fallback_year} fallback stats")
+            use_fallback = True
+        else:
+            print(f"  {live_year} stats OK ({avg_g:.0f} avg G/team)")
+
+    if use_fallback:
+        print(f"  Fetching {fallback_year} end-of-season stats as fallback...")
+        bat, pit = _try_fetch(fallback_year)
+        if bat.empty or pit.empty:
+            print(f"  [ERROR] Fallback {fallback_year} also failed. "
+                  "Check pybaseball connectivity.")
+            return pd.DataFrame(), pd.DataFrame()
+
+    # Validate that the expected feature columns exist and warn on any gaps.
+    EXPECTED_BAT = {"OPS", "wOBA", "AVG", "OBP", "SLG", "HR", "BB%", "K%", "R"}
+    EXPECTED_PIT = {"ERA", "FIP", "WHIP", "K/9", "BB/9", "xFIP"}
+    missing_bat = EXPECTED_BAT - set(bat.columns)
+    missing_pit = EXPECTED_PIT - set(pit.columns)
+    if missing_bat:
+        print(f"  [warn] Batting parquet missing expected columns: {sorted(missing_bat)}")
+        print(f"         Available batting columns: {sorted(bat.columns.tolist())}")
+    if missing_pit:
+        print(f"  [warn] Pitching parquet missing expected columns: {sorted(missing_pit)}")
+        print(f"         Available pitching columns: {sorted(pit.columns.tolist())}")
+
+    bat_path = os.path.join(LIVE_DIR, "team_batting.parquet")
+    pit_path = os.path.join(LIVE_DIR, "team_pitching.parquet")
+    bat.to_parquet(bat_path, index=False)
+    pit.to_parquet(pit_path, index=False)
+    print(f"  Saved live team_batting.parquet  ({len(bat)} teams) → {bat_path}")
+    print(f"  Saved live team_pitching.parquet ({len(pit)} teams) → {pit_path}")
+
+    return bat, pit
+
+
 def fetch_pitcher_stats(years):
     frames = []
     for yr in years:
@@ -554,6 +649,19 @@ def main():
         print(f"  Saved historical_stats.parquet ({len(game_features)} game rows)")
     else:
         print("  [warn] No game features saved")
+
+    print("\n[7/6] Live Season Team Stats (for run_model.py)")
+    from config import LIVE_SEASON
+    live_bat, live_pit = fetch_live_season_stats(
+        live_year=LIVE_SEASON,
+        fallback_year=max(TRAIN_YEARS),
+    )
+    if live_bat.empty or live_pit.empty:
+        print("  [warn] Live season stats unavailable — run_model.py will use "
+              "historical parquets from data/historical/")
+    else:
+        print(f"  Live stats ready: {len(live_bat)} batting rows, "
+              f"{len(live_pit)} pitching rows")
 
     print("\nDone! Run next: python train_model.py")
 

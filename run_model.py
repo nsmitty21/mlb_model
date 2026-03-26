@@ -191,9 +191,17 @@ def normalize_team(name: str) -> str:
 
 def load_team_stats():
     from config import HIST_DIR, LIVE_DIR
+
+    # Expected columns that run_model.py actually looks up in build_row().
+    # If these are absent from the parquet, every lookup silently returns NaN
+    # and the model receives all-zero feature rows (the underdog-bias bug).
+    EXPECTED_BAT = {"OPS", "wOBA", "AVG", "OBP", "SLG", "HR", "BB%", "K%", "R"}
+    EXPECTED_PIT = {"ERA", "FIP", "WHIP", "K/9", "BB/9", "xFIP"}
+
     bat, pit = {}, {}
 
-    # Prefer live parquets (more recent) but fall back to historical
+    # Prefer live parquets (current season, written by fetch_historical.py
+    # fetch_live_season_stats) but fall back to historical end-of-season stats.
     def _best_path(filename):
         live = os.path.join(LIVE_DIR, filename)
         hist = os.path.join(HIST_DIR, filename)
@@ -201,21 +209,45 @@ def load_team_stats():
             return live
         return hist
 
+    def _validate_cols(df, expected, label):
+        missing = expected - set(df.columns)
+        if missing:
+            print(f"  [WARN] {label} parquet is missing expected columns: "
+                  f"{sorted(missing)}")
+            print(f"         Available: {sorted(df.columns.tolist())}")
+            print(f"         Possible pybaseball column-name drift.  "
+                  f"Re-run fetch_historical.py to refresh.")
+
+    def _load_parquet_to_dict(path, expected_cols, label):
+        out = {}
+        if not os.path.exists(path):
+            return out
+        df = pd.read_parquet(path)
+        # Normalise Team/teamName → team
+        for col in ["Team", "teamName"]:
+            if col in df.columns and "team" not in df.columns:
+                df = df.rename(columns={col: "team"})
+        if "team" not in df.columns:
+            print(f"  [WARN] {label} parquet has no 'team' column — skipping")
+            return out
+        _validate_cols(df, expected_cols, label)
+        sort_col = "season" if "season" in df.columns else df.columns[0]
+        for _, r in (df.sort_values(sort_col)
+                       .groupby("team").last().reset_index().iterrows()):
+            out[r["team"]] = r.to_dict()
+        return out
+
     bp = _best_path("team_batting.parquet")
     pp = _best_path("team_pitching.parquet")
 
-    if os.path.exists(bp):
-        df = pd.read_parquet(bp)
-        if "team" in df.columns:
-            for _, r in (df.sort_values("season" if "season" in df.columns else df.columns[0])
-                           .groupby("team").last().reset_index().iterrows()):
-                bat[r["team"]] = r.to_dict()
-    if os.path.exists(pp):
-        df = pd.read_parquet(pp)
-        if "team" in df.columns:
-            for _, r in (df.sort_values("season" if "season" in df.columns else df.columns[0])
-                           .groupby("team").last().reset_index().iterrows()):
-                pit[r["team"]] = r.to_dict()
+    bat = _load_parquet_to_dict(bp, EXPECTED_BAT, "batting")
+    pit = _load_parquet_to_dict(pp, EXPECTED_PIT, "pitching")
+
+    if bat:
+        print(f"  Batting stats loaded from: {bp} ({len(bat)} teams)")
+    if pit:
+        print(f"  Pitching stats loaded from: {pp} ({len(pit)} teams)")
+
     return bat, pit
 
 
@@ -461,6 +493,8 @@ def generate_picks(games, models, bat, pit):
         if sh is not None and pdiff is not None:
             for side, spread, md in [("home", sh, pdiff), ("away", -sh, -pdiff)]:
                 team = ht if side == "home" else at
+
+                # Find best available odds to bet
                 best_j, best_bk = None, None
                 for bk in ["fanduel", "draftkings", "pinnacle"]:
                     if bk in books:
@@ -470,9 +504,33 @@ def generate_picks(games, models, bat, pit):
                 if best_j is None:
                     best_j, best_bk = -110, "fanduel"
 
-                pi   = books.get("pinnacle", {})
-                pi_j = pi.get(f"spread_juice_{side}")
-                bp   = american_to_prob(pi_j) if pi_j else (american_to_prob(best_j) or 0.524)
+                # BUG 4 FIX: Remove vig from spread benchmark.
+                # Previously we used american_to_prob(juice_one_side) which
+                # overstates bp by ~2.4% on standard -110/-110 juice, inflating
+                # every spread edge by that amount.
+                # Now we compute true no-vig probability from both sides.
+                pi = books.get("pinnacle", {})
+                pi_jh = pi.get("spread_juice_home")
+                pi_ja = pi.get("spread_juice_away")
+                if pi_jh is not None and pi_ja is not None:
+                    # Pinnacle available: use no-vig as benchmark
+                    _h, _a = no_vig(pi_jh, pi_ja)
+                    bp = (_h if side == "home" else _a) or 0.50
+                else:
+                    # No Pinnacle: use the best available book with vig removed
+                    jh = ja = None
+                    for bk in ["fanduel", "draftkings"]:
+                        if bk in books:
+                            jh = books[bk].get("spread_juice_home")
+                            ja = books[bk].get("spread_juice_away")
+                            if jh is not None and ja is not None:
+                                break
+                    if jh is not None and ja is not None:
+                        _h, _a = no_vig(jh, ja)
+                        bp = (_h if side == "home" else _a) or 0.50
+                    else:
+                        # Last resort: assume standard -110/-110 = 50% no-vig
+                        bp = 0.50
 
                 cp    = 1 / (1 + np.exp(-(md + spread) * 0.18))
                 edge  = calc_edge(cp, bp)
@@ -508,19 +566,33 @@ def generate_picks(games, models, bat, pit):
             for direction, diff in [("over", diff_from_line), ("under", -diff_from_line)]:
                 op = 1 / (1 + np.exp(-diff * 0.15))
 
-                pi_j = pi.get(f"total_{direction}_juice")
-                if pi_j:
-                    bp = american_to_prob(pi_j) or 0.524
-                    bk_used = "pinnacle"
+                # BUG 4 FIX: Remove vig from totals benchmark.
+                # Previously bp used american_to_prob(one_side_juice) which
+                # overstates the true probability on both over and under by ~2-3%.
+                # Now we always derive bp by removing vig across both sides.
+                opp_dir = "under" if direction == "over" else "over"
+                pi_j_this = pi.get(f"total_{direction}_juice")
+                pi_j_opp  = pi.get(f"total_{opp_dir}_juice")
+
+                if pi_j_this is not None and pi_j_opp is not None:
+                    _this, _ = no_vig(pi_j_this, pi_j_opp)
+                    bp       = _this or 0.50
+                    bk_used  = "pinnacle"
                 else:
-                    best_j, bk_used = None, None
+                    # No Pinnacle: find best available book with both sides
+                    bp = 0.50
+                    bk_used = "default"
                     for bk in ["fanduel", "draftkings"]:
                         if bk in books:
-                            j = books[bk].get(f"total_{direction}_juice")
-                            if j is not None and (best_j is None or j > best_j):
-                                best_j, bk_used = j, bk
-                    bp = (american_to_prob(best_j) or 0.524) if best_j else 0.524
+                            j_this = books[bk].get(f"total_{direction}_juice")
+                            j_opp  = books[bk].get(f"total_{opp_dir}_juice")
+                            if j_this is not None and j_opp is not None:
+                                _this, _ = no_vig(j_this, j_opp)
+                                if _this is not None:
+                                    bp, bk_used = _this, bk
+                                    break
 
+                # Best odds to actually place the bet (highest payout)
                 best_j_bet, best_bk_bet = None, None
                 for bk in ["fanduel", "draftkings", "pinnacle"]:
                     if bk in books:
@@ -637,9 +709,27 @@ def main():
     bat, pit = load_team_stats()
     print(f"  Teams — bat:{len(bat)} pit:{len(pit)}")
 
+    # BUG 1 FIX: If stats are missing, try to auto-fetch live season stats
+    # rather than just erroring out.  Early in the season (days 1-14) this will
+    # fall back to the prior year's end-of-season stats automatically.
+    if len(bat) == 0 or len(pit) == 0:
+        print("  [INFO] No team stats in parquets — attempting live fetch...")
+        try:
+            from fetch_historical import fetch_live_season_stats
+            from config import LIVE_SEASON, TRAIN_YEARS
+            live_bat, live_pit = fetch_live_season_stats(
+                live_year=LIVE_SEASON,
+                fallback_year=max(TRAIN_YEARS),
+            )
+            if not live_bat.empty and not live_pit.empty:
+                bat, pit = load_team_stats()
+                print(f"  Teams after fetch — bat:{len(bat)} pit:{len(pit)}")
+        except Exception as e:
+            print(f"  [WARN] Auto-fetch failed: {e}")
+
     if len(bat) == 0 or len(pit) == 0:
         print("[ERROR] No team stats loaded — cannot generate picks.")
-        print("        Run fetch_historical.py to populate data/historical/ parquets.")
+        print("        Run: python fetch_historical.py")
         sys.exit(1)
 
     picks = generate_picks(games, models, bat, pit)

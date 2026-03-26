@@ -84,6 +84,33 @@ def build_features(df):
     Ensure all feature columns exist, filling missing Pinnacle data with the
     median so training rows without PI lines are still usable.
     """
+    # BUG 2 FIX: Validate that the raw batting/pitching columns from pybaseball
+    # actually exist before we try to compute diffs from them.  pybaseball has
+    # historically renamed columns (e.g. "BB%" → "BB_pct") between versions.
+    # If a column is missing we fill with NaN (not 0) so the diff columns also
+    # become NaN and get caught by the median-fill step below, rather than
+    # silently computing 0-based diffs that look like valid data.
+    missing_bat = [f for f in BATTING_FEATS
+                   if f"home_bat_{f}" not in df.columns and f"away_bat_{f}" not in df.columns]
+    missing_pit = [f for f in PITCHING_FEATS
+                   if f"home_pit_{f}" not in df.columns and f"away_pit_{f}" not in df.columns]
+    if missing_bat:
+        print(f"  [warn] Batting features absent from training data: {missing_bat}")
+        print(f"         Likely pybaseball column-name drift. "
+              f"Available cols: {[c for c in df.columns if 'bat' in c][:10]}")
+        for f in missing_bat:
+            for pfx in ("home_bat_", "away_bat_"):
+                if f"{pfx}{f}" not in df.columns:
+                    df[f"{pfx}{f}"] = np.nan
+    if missing_pit:
+        print(f"  [warn] Pitching features absent from training data: {missing_pit}")
+        print(f"         Likely pybaseball column-name drift. "
+              f"Available cols: {[c for c in df.columns if 'pit' in c][:10]}")
+        for f in missing_pit:
+            for pfx in ("home_pit_", "away_pit_"):
+                if f"{pfx}{f}" not in df.columns:
+                    df[f"{pfx}{f}"] = np.nan
+
     missing_pi = [c for c in PINNACLE_FEATURE_COLS if c not in df.columns]
     if missing_pi:
         print(f"  [warn] {len(missing_pi)} Pinnacle features missing from parquet: {missing_pi}")

@@ -1,0 +1,3 @@
+python pull_lines.py       # fetch today's odds
+python run_model.py        # generate picks
+python generate_mlb_page.py   # writes CSVs, grades yesterday, pushes to GitHub
