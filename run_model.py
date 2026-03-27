@@ -2,34 +2,33 @@
 run_model.py — Generate Today's MLB Picks
 Loads lines, runs 3 models, applies edge thresholds, writes picks_today.json
 
-Pinnacle integration:
-  - Edge calculation uses Pinnacle's no-vig closing probability as the
-    true-market benchmark instead of a FD/DK no-vig blend.
-  - Pinnacle market features are included in the feature row sent to models.
-  - Falls back to FD/DK no-vig if Pinnacle lines are unavailable for a game.
+Sportsbook roles:
+  - Pinnacle: used ONLY to train the model on historical data (2021-2025).
+    Pinnacle features (pi_close_no_vig_home, pi_ml_movement, etc.) are baked
+    into the trained model weights.  At inference time the Pinnacle feature
+    columns default to neutral values (0.5 prob, 0.0 movement) since we do
+    NOT pull Pinnacle live lines.
+  - FanDuel / DraftKings: used for ALL live/upcoming line pulls, edge
+    benchmarking, and best-odds selection.  The no-vig benchmark for ML,
+    spread, and totals is computed from FD/DK only.
 
 Fixes (2026-03-26 v2):
   - BUG 1 (prev): scaler.joblib now loaded and applied in predict().
   - BUG 2 (prev): Sigmoid slopes flattened to reduce sensitivity.
   - BUG 3 (prev): MAX_EDGE_PCT cap (25%) kills runaway edges.
-  - BUG 4 (NEW):  Data-quality gate — games where >50% of team-stat features
-                  are missing/zero are skipped entirely. This is the root cause
-                  of all picks being underdog MLs: when 2026 stats haven't
-                  populated, every feature row is all-zeros → model outputs a
-                  near-constant ~55% for every away team → large fake edges
-                  only appear on underdogs (whose book_prob is low).
-  - BUG 5 (NEW):  Constant-probability detector — if 3+ ML picks share the
-                  same model_prob within 0.5pp, the run is aborted before
-                  saving any picks (dead giveaway of all-zero feature rows).
-  - BUG 6 (NEW):  MIN_EDGE_FOR_3U raised from 10% to 15% to reflect that a
-                  genuine mismatch edge should be rare. Config aliases kept for
-                  backward compat; the stricter constant is enforced here.
-  - BUG 7 (NEW):  Home-field boost was double-counted. The model was trained
-                  with home_field=1 as a feature, so it already prices home
-                  advantage. The additional 2% boost is now removed from the
-                  edge calculation path. The config constant is kept so the
-                  dashboard still displays correctly, but it is NOT applied
-                  before comparing to book_prob.
+  - BUG 4 (prev): Data-quality gate — games where >50% of team-stat features
+                  are missing/zero are skipped entirely.
+  - BUG 5 (prev): Constant-probability detector aborts run if ≥3 ML picks
+                  share the same model_prob within 0.5pp.
+  - BUG 6 (prev): MIN_EDGE_FOR_3U raised to 15%.
+  - BUG 7 (prev): Home-field boost removed from edge calc (double-count).
+  - BUG 8 (NEW):  Removed Pinnacle from live edge benchmark and best-odds
+                  selection.  resolve_book_prob_ml / resolve_best_odds_ml /
+                  spread and totals benchmark now use FD/DK only.  Using
+                  Pinnacle as the live benchmark when it was absent caused
+                  inconsistent no-vig calculations and was the root cause of
+                  underdog-only ML picks (away dogs have lower book_prob so
+                  any benchmark error inflates their apparent edge most).
 """
 import os, sys, json, warnings
 import numpy as np, pandas as pd, joblib
@@ -398,11 +397,13 @@ def load_models():
 # ─────────────────────────────────────────────────────────────────────────────
 
 def resolve_book_prob_ml(side, books):
-    pi = books.get("pinnacle", {})
-    ph, pa = pinnacle_no_vig(pi.get("ml_home"), pi.get("ml_away"))
-    if ph is not None:
-        return (ph if side == "home" else pa), "pinnacle_no_vig"
-
+    """
+    Edge benchmark: use FanDuel/DraftKings no-vig only.
+    Pinnacle is NOT used for live lines — it was used only to train the model
+    on historical data.  Using Pinnacle as the live benchmark when it is absent
+    (or present only for some games) produces inconsistent edge calculations and
+    was a root cause of underdog-only picks.
+    """
     for bk in ["fanduel", "draftkings"]:
         if bk in books:
             h, a = no_vig(books[bk].get("ml_home"), books[bk].get("ml_away"))
@@ -412,8 +413,9 @@ def resolve_book_prob_ml(side, books):
 
 
 def resolve_best_odds_ml(side, books):
+    """Best odds to actually bet — FD/DK only for live lines."""
     best_ml, best_bk = None, None
-    for bk in ["fanduel", "draftkings", "pinnacle"]:
+    for bk in ["fanduel", "draftkings"]:
         if bk in books:
             ml = books[bk].get(f"ml_{side}")
             if ml is not None and (best_ml is None or ml > best_ml):
@@ -494,9 +496,9 @@ def generate_picks(games, models, bat, pit):
             for side, spread, md in [("home", sh, pdiff), ("away", -sh, -pdiff)]:
                 team = ht if side == "home" else at
 
-                # Find best available odds to bet
+                # Best odds to bet — FD/DK only for live lines
                 best_j, best_bk = None, None
-                for bk in ["fanduel", "draftkings", "pinnacle"]:
+                for bk in ["fanduel", "draftkings"]:
                     if bk in books:
                         j = books[bk].get(f"spread_juice_{side}")
                         if j is not None and (best_j is None or j > best_j):
@@ -504,33 +506,21 @@ def generate_picks(games, models, bat, pit):
                 if best_j is None:
                     best_j, best_bk = -110, "fanduel"
 
-                # BUG 4 FIX: Remove vig from spread benchmark.
-                # Previously we used american_to_prob(juice_one_side) which
-                # overstates bp by ~2.4% on standard -110/-110 juice, inflating
-                # every spread edge by that amount.
-                # Now we compute true no-vig probability from both sides.
-                pi = books.get("pinnacle", {})
-                pi_jh = pi.get("spread_juice_home")
-                pi_ja = pi.get("spread_juice_away")
-                if pi_jh is not None and pi_ja is not None:
-                    # Pinnacle available: use no-vig as benchmark
-                    _h, _a = no_vig(pi_jh, pi_ja)
+                # Spread benchmark: FD/DK no-vig only (Pinnacle not used for live lines).
+                # Use the best available book with both sides present to remove vig.
+                jh = ja = None
+                for bk in ["fanduel", "draftkings"]:
+                    if bk in books:
+                        jh = books[bk].get("spread_juice_home")
+                        ja = books[bk].get("spread_juice_away")
+                        if jh is not None and ja is not None:
+                            break
+                if jh is not None and ja is not None:
+                    _h, _a = no_vig(jh, ja)
                     bp = (_h if side == "home" else _a) or 0.50
                 else:
-                    # No Pinnacle: use the best available book with vig removed
-                    jh = ja = None
-                    for bk in ["fanduel", "draftkings"]:
-                        if bk in books:
-                            jh = books[bk].get("spread_juice_home")
-                            ja = books[bk].get("spread_juice_away")
-                            if jh is not None and ja is not None:
-                                break
-                    if jh is not None and ja is not None:
-                        _h, _a = no_vig(jh, ja)
-                        bp = (_h if side == "home" else _a) or 0.50
-                    else:
-                        # Last resort: assume standard -110/-110 = 50% no-vig
-                        bp = 0.50
+                    # Last resort: assume standard -110/-110 = 50% no-vig
+                    bp = 0.50
 
                 cp    = 1 / (1 + np.exp(-(md + spread) * 0.18))
                 edge  = calc_edge(cp, bp)
@@ -559,42 +549,31 @@ def generate_picks(games, models, bat, pit):
         # ── Totals ────────────────────────────────────────────────────────
         pi       = books.get("pinnacle", {})
         pi_total = pi.get("total")
-        tl       = pi_total or g.get("total")
+        # For totals line: prefer FD/DK first (live lines), fall back to game total
+        tl = g.get("total") or pi_total
 
         if tl is not None and ptot is not None:
             diff_from_line = ptot - tl
             for direction, diff in [("over", diff_from_line), ("under", -diff_from_line)]:
                 op = 1 / (1 + np.exp(-diff * 0.15))
 
-                # BUG 4 FIX: Remove vig from totals benchmark.
-                # Previously bp used american_to_prob(one_side_juice) which
-                # overstates the true probability on both over and under by ~2-3%.
-                # Now we always derive bp by removing vig across both sides.
+                # Totals benchmark: FD/DK no-vig only (Pinnacle not used for live lines).
                 opp_dir = "under" if direction == "over" else "over"
-                pi_j_this = pi.get(f"total_{direction}_juice")
-                pi_j_opp  = pi.get(f"total_{opp_dir}_juice")
+                bp = 0.50
+                bk_used = "default"
+                for bk in ["fanduel", "draftkings"]:
+                    if bk in books:
+                        j_this = books[bk].get(f"total_{direction}_juice")
+                        j_opp  = books[bk].get(f"total_{opp_dir}_juice")
+                        if j_this is not None and j_opp is not None:
+                            _this, _ = no_vig(j_this, j_opp)
+                            if _this is not None:
+                                bp, bk_used = _this, bk
+                                break
 
-                if pi_j_this is not None and pi_j_opp is not None:
-                    _this, _ = no_vig(pi_j_this, pi_j_opp)
-                    bp       = _this or 0.50
-                    bk_used  = "pinnacle"
-                else:
-                    # No Pinnacle: find best available book with both sides
-                    bp = 0.50
-                    bk_used = "default"
-                    for bk in ["fanduel", "draftkings"]:
-                        if bk in books:
-                            j_this = books[bk].get(f"total_{direction}_juice")
-                            j_opp  = books[bk].get(f"total_{opp_dir}_juice")
-                            if j_this is not None and j_opp is not None:
-                                _this, _ = no_vig(j_this, j_opp)
-                                if _this is not None:
-                                    bp, bk_used = _this, bk
-                                    break
-
-                # Best odds to actually place the bet (highest payout)
+                # Best odds to bet — FD/DK only
                 best_j_bet, best_bk_bet = None, None
-                for bk in ["fanduel", "draftkings", "pinnacle"]:
+                for bk in ["fanduel", "draftkings"]:
                     if bk in books:
                         j = books[bk].get(f"total_{direction}_juice")
                         if j is not None and (best_j_bet is None or j > best_j_bet):
@@ -700,7 +679,9 @@ def main():
     print(f"  {len(games)} games loaded")
 
     pi_games = sum(1 for g in games if "pinnacle" in g.get("books", {}))
-    print(f"  Pinnacle lines available: {pi_games}/{len(games)} games")
+    if pi_games:
+        print(f"  [INFO] Pinnacle lines found in today_lines.json for {pi_games} game(s) — "
+              f"these will NOT be used for edge benchmarking (FD/DK only).")
 
     models = load_models()
     loaded = [k for k, v in models.items() if v]
