@@ -27,6 +27,9 @@ HISTORICAL_PATH = os.path.join(HIST_DIR, "historical_stats.parquet")
 from config import HIST_ODDS_DIR
 LINES_CSV_DIR = HIST_ODDS_DIR
 
+BVP_CSV_PATH        = os.path.join(HIST_ODDS_DIR, "batter_vs_pitcher_career.csv")
+LINEUP_PARQUET_PATH = os.path.join(HIST_DIR, "game_lineups.parquet")
+
 os.makedirs(DATA_DIR, exist_ok=True)
 
 HEADERS   = {"User-Agent": "Mozilla/5.0"}
@@ -460,13 +463,260 @@ def fetch_schedules(years):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Feature builder – now accepts pinnacle_lines lookup
+# Batter-vs-Pitcher + lineup helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def build_game_features(schedules_df, team_bat_df, team_pit_df, pinnacle_lines=None):
+# BBRef team name → 3-letter abbreviation used by ESPN schedule data.
+# Needed so we can match lineup_lookup (keyed by bbref home_abbr) against
+# the ESPN fetch_team column (also 3-letter abbreviations).
+BBREF_ABBR_TO_ESPN = {
+    # Standard modern codes (already matched)
+    "ARI": "ARI", "ATL": "ATL", "BAL": "BAL", "BOS": "BOS",
+    "CHC": "CHC", "CWS": "CHW", "CIN": "CIN", "CLE": "CLE",
+    "COL": "COL", "DET": "DET", "HOU": "HOU", "KCR": "KCR",
+    "LAA": "LAA", "LAD": "LAD", "MIA": "MIA", "MIL": "MIL",
+    "MIN": "MIN", "NYM": "NYM", "NYY": "NYY", "OAK": "OAK",
+    "ATH": "OAK",   # Sacramento Athletics
+    "PHI": "PHI", "PIT": "PIT", "SDP": "SDP", "SEA": "SEA",
+    "SFG": "SFG", "STL": "STL", "TBR": "TBR", "TEX": "TEX",
+    "TOR": "TOR", "WSN": "WSN",
+    # BUG FIX: BBRef uses old NL-style 3-letter codes for NL teams.
+    # These were the root cause of the crash — unmapped codes passed through
+    # as-is, so lineup_lookup keys like ("2026-03-25", "SFN") never matched
+    # ESPN schedule keys like ("2026-03-25", "SFG"), silently killing all BvP.
+    "SFN": "SFG",   # San Francisco Giants
+    "LAN": "LAD",   # Los Angeles Dodgers
+    "SDN": "SDP",   # San Diego Padres
+    "CHN": "CHC",   # Chicago Cubs
+    "NYN": "NYM",   # New York Mets
+    "SLN": "STL",   # St. Louis Cardinals
+    "CHA": "CHW",   # Chicago White Sox (AL style)
+    "KCA": "KCR",   # Kansas City Royals
+    "TBA": "TBR",   # Tampa Bay Rays
+    "WAS": "WSN",   # Washington Nationals (alternate)
+    "FLO": "MIA",   # Florida/Miami Marlins (pre-2012 name)
+    "MON": "WSN",   # Montreal Expos (pre-2005, rare in 2021+ data)
+}
+
+
+def load_bvp_features(bvp_path: str = BVP_CSV_PATH):
+    """Load batter_vs_pitcher_career.csv. Returns DataFrame or None."""
+    if not os.path.exists(bvp_path):
+        print(f"  [warn] BvP file not found: {bvp_path}")
+        print("         Run bbref_batter_vs_pitcher_scraper.py first.")
+        return None
+    df = pd.read_csv(bvp_path, low_memory=False)
+    required = {"batter", "pitcher", "PA", "AB", "H", "HR", "BB", "K"}
+    missing  = required - set(df.columns)
+    if missing:
+        print(f"  [warn] BvP CSV missing columns: {missing} — skipping")
+        return None
+    print(f"  BvP: loaded {len(df):,} matchup rows from {os.path.basename(bvp_path)}")
+    return df
+
+
+def build_game_lineups(
+    pa_dir: str = HIST_ODDS_DIR,
+    output_path: str = LINEUP_PARQUET_PATH,
+    force_rebuild: bool = False,
+) -> dict:
     """
-    Build one row per completed game.  If pinnacle_lines (DataFrame indexed by
-    game_id) is provided, all pi_* columns are joined in.
+    Build a per-game lineup lookup from plate_appearances_raw_*.csv files.
+
+    Key insight: ESPN schedule uses numeric game IDs; BBRef uses its own IDs.
+    They share two fields: game_date and home team abbreviation.
+    So we key this lookup by (game_date, home_abbr) — both datasets have
+    these, giving a reliable join without needing ID translation.
+
+    Returns dict keyed by (game_date, home_abbr) → lineup info.
+    """
+    from pathlib import Path
+
+    if not force_rebuild and os.path.exists(output_path):
+        print(f"  Lineups: loading from cache {os.path.basename(output_path)}")
+        df = pd.read_parquet(output_path)
+        # BUG FIX: validate cache has all required columns before using it.
+        # Older versions saved game_lineups.parquet without home_abbr, causing
+        # a KeyError crash on every subsequent run. Force a rebuild if stale.
+        required_cols = {"game_date", "home_abbr", "home_batters",
+                         "away_batters", "home_sp", "away_sp"}
+        missing_cols  = required_cols - set(df.columns)
+        if missing_cols:
+            print(f"  [warn] Cache missing {missing_cols} — rebuilding from PA files")
+        else:
+            return _lineups_df_to_dict(df)
+
+    pa_files = sorted(Path(pa_dir).glob("plate_appearances_raw_*.csv"))
+    if not pa_files:
+        print(f"  [warn] No plate_appearances_raw_*.csv files in {pa_dir}")
+        return {}
+
+    print(f"  Lineups: building from {len(pa_files)} PA file(s)...")
+    frames = []
+    for f in pa_files:
+        try:
+            frames.append(pd.read_csv(
+                f,
+                usecols=["bbref_game_id", "game_date", "batter",
+                         "pitcher", "batting_team_home"],
+                low_memory=False,
+            ))
+        except Exception as e:
+            print(f"    [warn] Could not read {f.name}: {e}")
+
+    if not frames:
+        print("  [warn] All PA files failed — using career proxy")
+        return {}
+
+    pa = pd.concat(frames, ignore_index=True)
+    pa["batting_team_home"] = (
+        pd.to_numeric(pa["batting_team_home"], errors="coerce").fillna(0).astype(int)
+    )
+
+    records = []
+    for gid, grp in pa.groupby("bbref_game_id"):
+        home_bat_rows = grp[grp["batting_team_home"] == 1]
+        away_bat_rows = grp[grp["batting_team_home"] == 0]
+
+        # BUG FIX: BBRef PA files use non-breaking spaces (\xa0) instead of
+        # regular spaces in batter/pitcher names. This silently breaks BvP
+        # lookups for every player. Normalise all names at write time.
+        def _clean(s): return str(s).replace("\xa0", " ").replace("\u00a0", " ").strip()
+
+        # home_sp = first pitcher to face away batters
+        # away_sp = first pitcher to face home batters
+        home_sp = _clean(away_bat_rows["pitcher"].dropna().iloc[0]) \
+                  if not away_bat_rows.empty else ""
+        away_sp = _clean(home_bat_rows["pitcher"].dropna().iloc[0]) \
+                  if not home_bat_rows.empty else ""
+
+        game_date = str(grp["game_date"].iloc[0])
+
+        # Extract home team abbreviation from bbref_game_id.
+        # BBRef format: HHHYYYYMMDDnn  e.g. BOS2023040601
+        # First 3 chars = home team abbreviation.
+        home_abbr_bbref = str(gid)[:3]
+        # Map to ESPN abbreviation (most are identical; a few differ)
+        home_abbr = BBREF_ABBR_TO_ESPN.get(home_abbr_bbref, home_abbr_bbref)
+
+        records.append({
+            "bbref_game_id": gid,
+            "game_date":     game_date,
+            "home_abbr":     home_abbr,
+            "home_batters":  "|".join(_clean(b) for b in home_bat_rows["batter"].dropna().unique()),
+            "away_batters":  "|".join(_clean(b) for b in away_bat_rows["batter"].dropna().unique()),
+            "home_sp":       home_sp,
+            "away_sp":       away_sp,
+        })
+
+    lineup_df = pd.DataFrame(records)
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    lineup_df.to_parquet(output_path, index=False)
+
+    n      = len(lineup_df)
+    has_sp = (lineup_df["home_sp"] != "").sum()
+    print(f"  Lineups: {n:,} games | {has_sp:,} ({has_sp/n:.1%}) with home SP")
+    print(f"  Saved → {output_path}")
+    return _lineups_df_to_dict(lineup_df)
+
+
+def _lineups_df_to_dict(df: pd.DataFrame) -> dict:
+    """
+    Convert lineup DataFrame to dict keyed by (game_date, home_abbr).
+    This matches the ESPN schedule join key used in build_game_features.
+    """
+    out = {}
+    for _, row in df.iterrows():
+        key = (str(row["game_date"]), str(row["home_abbr"]))
+        out[key] = {
+            "home_batters": [b for b in str(row["home_batters"]).split("|") if b],
+            "away_batters": [b for b in str(row["away_batters"]).split("|") if b],
+            "home_sp":      str(row["home_sp"]),
+            "away_sp":      str(row["away_sp"]),
+        }
+    return out
+
+
+def compute_bvp_pitcher_features(
+    pitcher_name: str,
+    lineup: list,
+    bvp_df,
+    min_pa: int = 5,
+) -> dict:
+    """
+    Aggregate career H2H stats for pitcher_name vs every batter in lineup.
+    Returns 8 features; all NaN when no qualifying history exists.
+    """
+    empty = {
+        "bvp_pa_total": np.nan, "bvp_avg": np.nan, "bvp_ops": np.nan,
+        "bvp_k_rate":   np.nan, "bvp_bb_rate": np.nan, "bvp_hr_rate": np.nan,
+        "bvp_h_rate":   np.nan, "bvp_matchups_found": 0,
+    }
+    if bvp_df is None or not lineup or not pitcher_name:
+        return empty
+
+    # BUG FIX: BBRef CSVs use non-breaking spaces ( ) in player names.
+    # str.strip() does not remove   — normalise both sides of the join.
+    def _norm(s): return str(s).replace(" ", " ").replace(" ", " ").strip().lower()
+
+    pitcher_lower = _norm(pitcher_name)
+    sub = bvp_df[bvp_df["pitcher"].apply(_norm) == pitcher_lower]
+    if sub.empty:
+        return empty
+
+    sub_idx = sub.set_index(sub["batter"].apply(_norm))
+    totals  = {"PA": 0, "AB": 0, "H": 0, "HR": 0, "BB": 0, "K": 0, "SF": 0, "HBP": 0}
+    found   = 0
+
+    for batter in lineup:
+        key = _norm(batter)
+        if key not in sub_idx.index:
+            continue
+        row = sub_idx.loc[key]
+        if isinstance(row, pd.DataFrame):
+            row = row.iloc[0]
+        pa = int(row.get("PA", 0) or 0)
+        if pa < min_pa:
+            continue
+        found += 1
+        for col in totals:
+            totals[col] += float(row.get(col, 0) or 0)
+
+    if found == 0 or totals["PA"] == 0:
+        return empty
+
+    pa = totals["PA"]
+    ab = totals["AB"] if totals["AB"] > 0 else pa
+    h, bb, hbp, sf, hr = totals["H"], totals["BB"], totals["HBP"], totals["SF"], totals["HR"]
+    singles = max(h - hr, 0)
+    obp_den = ab + bb + hbp + sf
+    obp     = (h + bb + hbp) / obp_den if obp_den > 0 else np.nan
+    slg     = (singles + 4 * hr) / ab  if ab > 0      else np.nan
+    ops     = round(obp + slg, 3) if (pd.notna(obp) and pd.notna(slg)) else np.nan
+
+    return {
+        "bvp_pa_total":       pa,
+        "bvp_avg":            round(h  / ab, 3) if ab > 0 else np.nan,
+        "bvp_ops":            ops,
+        "bvp_k_rate":         round(totals["K"]  / pa, 3),
+        "bvp_bb_rate":        round(totals["BB"] / pa, 3),
+        "bvp_hr_rate":        round(totals["HR"] / pa, 3),
+        "bvp_h_rate":         round(h / pa, 3),
+        "bvp_matchups_found": found,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Feature builder – now accepts pinnacle_lines, bvp_df, lineup_lookup
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_game_features(schedules_df, team_bat_df, team_pit_df,
+                        pinnacle_lines=None, bvp_df=None, lineup_lookup=None):
+    """
+    Build one row per completed game.
+    lineup_lookup is keyed by (game_date, home_team_abbr) matching the ESPN
+    schedule's date + fetch_team columns — this is the correct join key since
+    ESPN and BBRef use different game ID formats.
     """
     print("  Building game-level features...")
     if schedules_df.empty:
@@ -561,6 +811,46 @@ def build_game_features(schedules_df, team_bat_df, team_pit_df, pinnacle_lines=N
         row["pi_close_no_vig_home"]      = pi.get("pi_close_no_vig_home", np.nan)
         row["pi_close_no_vig_away"]      = pi.get("pi_close_no_vig_away", np.nan)
 
+        # ── Batter-vs-Pitcher features ────────────────────────────────────
+        # Join key: (game_date, home_team) — same fields available in both
+        # the ESPN schedule and the lineup_lookup built from BBRef PA files.
+        # This avoids the ESPN numeric ID vs BBRef alphanumeric ID mismatch.
+        if bvp_df is not None:
+            # BUG FIX: game["date"] is stored as pd.Timestamp in the parquet
+            # (e.g. Timestamp("2021-04-01")), so str() gives "2021-04-01 00:00:00"
+            # which never matches lineup_lookup keys like "2021-04-01".
+            # Use .date().isoformat() to normalise to YYYY-MM-DD string.
+            _raw_date     = game.get("date", "")
+            game_date_str = (pd.Timestamp(_raw_date).date().isoformat()
+                             if _raw_date else "")
+            lineup_key    = (game_date_str, home_team)
+            game_lineup   = lineup_lookup.get(lineup_key) if lineup_lookup else None
+
+            if game_lineup:
+                home_batters = game_lineup["home_batters"]
+                away_batters = game_lineup["away_batters"]
+                home_sp      = game_lineup["home_sp"]
+                away_sp      = game_lineup["away_sp"]
+            else:
+                # Career proxy: all batters ever recorded facing this pitcher
+                home_sp = away_sp = ""
+                home_batters = away_batters = []
+
+            # away SP vs home lineup → home offensive BvP edge
+            h_feats = compute_bvp_pitcher_features(away_sp, home_batters, bvp_df)
+            # home SP vs away lineup → away offensive BvP edge
+            a_feats = compute_bvp_pitcher_features(home_sp, away_batters, bvp_df)
+
+            for k, v in h_feats.items():
+                row[f"home_{k}"] = v
+            for k, v in a_feats.items():
+                row[f"away_{k}"] = v
+
+            # Positive = home lineup has the BvP advantage
+            row["bvp_avg_diff"]    = (h_feats["bvp_avg"]    or np.nan) - (a_feats["bvp_avg"]    or np.nan)
+            row["bvp_ops_diff"]    = (h_feats["bvp_ops"]    or np.nan) - (a_feats["bvp_ops"]    or np.nan)
+            row["bvp_k_rate_diff"] = (h_feats["bvp_k_rate"] or np.nan) - (a_feats["bvp_k_rate"] or np.nan)
+
         rows.append(row)
 
     return pd.DataFrame(rows) if rows else pd.DataFrame()
@@ -604,11 +894,27 @@ def main():
         print(f"  -> {len(pinnacle_lines)} unique game_ids | "
               f"closing no-vig coverage: {pi_coverage:.1%}")
 
+    print("\n[5c/6] Batter-vs-Pitcher Matchup Table")
+    bvp_df = load_bvp_features()
+    if bvp_df is not None:
+        print(f"  -> {len(bvp_df):,} batter-pitcher pairs loaded")
+        print(f"  -> {bvp_df['PA'].ge(5).mean():.1%} pairs have >= 5 PA")
+    else:
+        print("  -> BvP features skipped (run bbref scraper first)")
+
+    print("\n[5d/6] Per-Game Lineups (from plate appearance files)")
+    lineup_lookup = build_game_lineups(pa_dir=HIST_ODDS_DIR)
+    if lineup_lookup:
+        print(f"  -> {len(lineup_lookup):,} games in lineup lookup")
+    else:
+        print("  -> No lineup data — BvP will use career proxy")
+
     print("\n[6/6] Building game features...")
-    game_features = build_game_features(schedules, team_bat, team_pit, pinnacle_lines)
+    game_features = build_game_features(
+        schedules, team_bat, team_pit, pinnacle_lines, bvp_df, lineup_lookup
+    )
     print(f"  -> {len(game_features)} game rows with features")
 
-    # Verify date and pi columns
     if "date" in game_features.columns:
         sample = game_features["date"].dropna().iloc[:3].tolist()
         print(f"  -> Date column confirmed: {sample}")
@@ -622,6 +928,11 @@ def main():
               f"no-vig coverage in output: {nv_cov:.1%}")
     else:
         print("  [warn] No Pinnacle columns in output!")
+
+    bvp_cols = [c for c in game_features.columns if "bvp" in c]
+    if bvp_cols:
+        bvp_cov = game_features["home_bvp_pa_total"].notna().mean()
+        print(f"  -> {len(bvp_cols)} BvP feature columns | coverage: {bvp_cov:.1%}")
 
     print("\n[Saving data...]")
     if not team_bat.empty:
@@ -644,6 +955,9 @@ def main():
             os.path.join(DATA_DIR, "pinnacle_lines.parquet"), index=False
         )
         print("  Saved pinnacle_lines.parquet")
+    if lineup_lookup:
+        print(f"  game_lineups.parquet already saved during step 5d "
+              f"({len(lineup_lookup):,} games)")
     if not game_features.empty:
         game_features.to_parquet(HISTORICAL_PATH, index=False)
         print(f"  Saved historical_stats.parquet ({len(game_features)} game rows)")

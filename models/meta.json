@@ -1,5 +1,5 @@
 {
-  "trained_at": "2026-03-27T15:51:00.050215",
+  "trained_at": "2026-03-28T21:51:41.743138",
   "training_years": [
     2021,
     2022,
@@ -60,11 +60,25 @@
     "pi_ml_movement",
     "pi_spread_movement",
     "pi_total_movement",
-    "pi_close_total"
+    "pi_close_total",
+    "home_bvp_avg",
+    "home_bvp_ops",
+    "home_bvp_k_rate",
+    "home_bvp_bb_rate",
+    "home_bvp_hr_rate",
+    "away_bvp_avg",
+    "away_bvp_ops",
+    "away_bvp_k_rate",
+    "away_bvp_bb_rate",
+    "away_bvp_hr_rate",
+    "bvp_avg_diff",
+    "bvp_ops_diff",
+    "bvp_k_rate_diff"
   ],
-  "n_features": 52,
+  "n_features": 65,
   "n_team_features": 46,
   "n_pinnacle_features": 6,
+  "n_bvp_features": 13,
   "pinnacle_features": [
     "pi_close_no_vig_home",
     "pi_open_implied_home",
@@ -73,24 +87,39 @@
     "pi_total_movement",
     "pi_close_total"
   ],
+  "bvp_features": [
+    "home_bvp_avg",
+    "home_bvp_ops",
+    "home_bvp_k_rate",
+    "home_bvp_bb_rate",
+    "home_bvp_hr_rate",
+    "away_bvp_avg",
+    "away_bvp_ops",
+    "away_bvp_k_rate",
+    "away_bvp_bb_rate",
+    "away_bvp_hr_rate",
+    "bvp_avg_diff",
+    "bvp_ops_diff",
+    "bvp_k_rate_diff"
+  ],
   "home_win_pct": 0.531,
   "avg_total": 8.91,
   "model_metrics": {
     "ML": {
-      "auc": 0.5915,
-      "auc_std": 0.0148,
+      "auc": 0.6182,
+      "auc_std": 0.0141,
       "pos_rate": 0.5314,
       "n": 12148
     },
     "Spread/RL": {
-      "auc": 0.5928,
-      "auc_std": 0.0153,
+      "auc": 0.6151,
+      "auc_std": 0.0158,
       "pos_rate": 0.3589,
       "n": 12148
     },
     "Total": {
-      "auc": 0.5001,
-      "auc_std": 0.012,
+      "auc": 0.5505,
+      "auc_std": 0.0124,
       "pos_rate": 0.4687,
       "n": 12148
     }

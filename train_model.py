@@ -91,7 +91,26 @@ PINNACLE_FEATURE_COLS = [
     "pi_close_total",
 ]
 
-FEATURE_COLS = TEAM_FEATURE_COLS + PINNACLE_FEATURE_COLS
+# Batter-vs-pitcher matchup features from bbref_batter_vs_pitcher_scraper.py
+# + fetch_historical.py build_game_lineups(). These use actual per-game lineups
+# when available, falling back to career proxy when not.
+BVP_FEATURE_COLS = [
+    "home_bvp_avg",       # batting avg of home lineup vs away SP (career H2H)
+    "home_bvp_ops",       # OPS of home lineup vs away SP
+    "home_bvp_k_rate",    # K rate of home lineup vs away SP (high = away SP dominates)
+    "home_bvp_bb_rate",   # BB rate of home lineup vs away SP
+    "home_bvp_hr_rate",   # HR rate of home lineup vs away SP
+    "away_bvp_avg",       # batting avg of away lineup vs home SP
+    "away_bvp_ops",       # OPS of away lineup vs home SP
+    "away_bvp_k_rate",    # K rate of away lineup vs home SP
+    "away_bvp_bb_rate",   # BB rate of away lineup vs home SP
+    "away_bvp_hr_rate",   # HR rate of away lineup vs home SP
+    "bvp_avg_diff",       # home_bvp_avg - away_bvp_avg (positive = home lineup edge)
+    "bvp_ops_diff",       # home_bvp_ops - away_bvp_ops
+    "bvp_k_rate_diff",    # home_bvp_k_rate - away_bvp_k_rate (positive = away SP more dominant)
+]
+
+FEATURE_COLS = TEAM_FEATURE_COLS + PINNACLE_FEATURE_COLS + BVP_FEATURE_COLS
 
 
 # ── Data loading ──────────────────────────────────────────────────────────────
@@ -199,6 +218,34 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
         med = df[c].median() if df[c].notna().any() else 8.5
         df[c] = df[c].fillna(med)
 
+    # ── BvP features ──────────────────────────────────────────────────────
+    # These are present only when fetch_historical.py has been run with both
+    # batter_vs_pitcher_career.csv and game_lineups.parquet available.
+    # Missing columns get NaN; the model handles them via the -999 fillna
+    # in the training loop (same treatment as sparse Pinnacle data).
+    missing_bvp = [c for c in BVP_FEATURE_COLS if c not in df.columns]
+    if missing_bvp:
+        print(f"  [warn] {len(missing_bvp)} BvP features absent — "
+              f"run fetch_historical.py after bbref scraper completes")
+        for c in missing_bvp:
+            df[c] = np.nan
+    else:
+        # Report coverage so we know how much of the training set has real H2H data
+        bvp_cov = df["home_bvp_avg"].notna().mean()
+        print(f"  BvP feature coverage: {bvp_cov:.1%} of training rows have H2H data")
+        if bvp_cov < 0.30:
+            print("  [warn] BvP coverage < 30% — signal will be weak. "
+                  "Re-run fetch_historical.py once more PA files are scraped.")
+
+    # Fill BvP NaNs with column medians so they degrade gracefully when absent.
+    # Do NOT fill with 0 — a 0 AVG looks like a pitcher who dominates completely,
+    # which would be worse than saying "no data".
+    for c in BVP_FEATURE_COLS:
+        med = df[c].median() if df[c].notna().any() else np.nan
+        if pd.notna(med):
+            df[c] = df[c].fillna(med)
+        # Remaining NaNs (all-null column) stay NaN → become -999 in training loop
+
     # ── Binary target columns (FIX 2) ────────────────────────────────────
     # home_win: already present from fetch_historical
     if "home_win" not in df.columns:
@@ -268,6 +315,17 @@ def _report_pi_importance(pipeline: Pipeline, label: str):
         for c in PINNACLE_FEATURE_COLS:
             if c in FEATURE_COLS:
                 print(f"      {c}: {fi[FEATURE_COLS.index(c)]:.3f}")
+        # BvP importance
+        bvp_indices = [FEATURE_COLS.index(c) for c in BVP_FEATURE_COLS
+                       if c in FEATURE_COLS]
+        total_bvp_imp = sum(fi[i] for i in bvp_indices)
+        print(f"    BvP feature importance share ({label}): {total_bvp_imp:.1%}")
+        top_bvp = sorted(
+            [(c, fi[FEATURE_COLS.index(c)]) for c in BVP_FEATURE_COLS if c in FEATURE_COLS],
+            key=lambda x: x[1], reverse=True
+        )[:5]
+        for c, imp in top_bvp:
+            print(f"      {c}: {imp:.3f}")
     except Exception:
         pass
 
@@ -346,7 +404,9 @@ def train(years: list[int] | None = None) -> dict:
         "n_features":          len(FEATURE_COLS),
         "n_team_features":     len(TEAM_FEATURE_COLS),
         "n_pinnacle_features": len(PINNACLE_FEATURE_COLS),
+        "n_bvp_features":      len(BVP_FEATURE_COLS),
         "pinnacle_features":   PINNACLE_FEATURE_COLS,
+        "bvp_features":        BVP_FEATURE_COLS,
         "home_win_pct":        round(float(df["home_win"].mean()), 3)
                                if "home_win" in df.columns else None,
         "avg_total":           round(float(df["total_runs"].mean()), 2)
@@ -363,7 +423,9 @@ def train(years: list[int] | None = None) -> dict:
     print(f"  Home win pct:   {meta['home_win_pct']}")
     print(f"  Avg total runs: {meta['avg_total']}")
     print(f"  Features:       {len(FEATURE_COLS)} "
-          f"({len(TEAM_FEATURE_COLS)} team + {len(PINNACLE_FEATURE_COLS)} Pinnacle)")
+          f"({len(TEAM_FEATURE_COLS)} team + "
+          f"{len(PINNACLE_FEATURE_COLS)} Pinnacle + "
+          f"{len(BVP_FEATURE_COLS)} BvP)")
     print(f"{'='*58}")
     print("  Run next: python pull_lines.py  →  python run_today.py")
 

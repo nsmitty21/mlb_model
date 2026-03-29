@@ -16,6 +16,12 @@ else:
 ODDS_API_KEY  = os.getenv("ODDS_API_KEY", "YOUR_KEY_HERE")
 ODDS_API_BASE = "https://api.the-odds-api.com/v4"
 SPORT_KEY     = "baseball_mlb"
+# ── Sportsbook roles ──────────────────────────────────────────────────────────
+# Pinnacle: used ONLY to train the model on historical odds data (2021–2025).
+#   The model learned Pinnacle's sharp no-vig probabilities as features.
+#   We do NOT fetch Pinnacle for live/upcoming lines.
+# FanDuel + DraftKings: used for all live line pulls, edge benchmarking,
+#   and best-odds selection at prediction time.
 TARGET_BOOKS  = ["fanduel", "draftkings"]
 
 # ── Edge Thresholds ───────────────────────────────────────────────────────────
