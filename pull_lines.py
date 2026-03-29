@@ -5,6 +5,23 @@ Outputs today_lines.json (structured for run_model.py).
 Usage:
     python pull_lines.py
     python pull_lines.py --date 2026-03-28
+
+Pinnacle proxy
+--------------
+The model was trained with 6 Pinnacle features (pi_close_no_vig_home,
+pi_open_implied_home, pi_ml_movement, pi_spread_movement,
+pi_total_movement, pi_close_total).  We don't pull Pinnacle live, so
+after parsing each game we derive synthetic equivalents from the FD/DK
+consensus.  These are stored under books["pinnacle"] so that run_today.py
+can read them through the existing pinnacle_ctx block without any changes.
+
+  pi_close_no_vig_home  — average no-vig home win prob across FD + DK
+  pi_open_implied_home  — same value (best proxy without a true open line)
+  pi_close_total        — average of FD + DK total lines
+  pi_ml_movement        — 0.0  (unknown without a real Pinnacle open)
+  pi_spread_movement    — 0.0
+  pi_total_movement     — 0.0
+  _pi_synthetic         — True  (lets run_today.py cap 3U picks if desired)
 """
 
 import os, sys, json, argparse
@@ -27,6 +44,50 @@ def american_to_prob(odds):
     if odds > 0:
         return 100 / (odds + 100)
     return abs(odds) / (abs(odds) + 100)
+
+
+def remove_vig(p_home, p_away):
+    """Strip vig and return (no_vig_home, no_vig_away)."""
+    total = p_home + p_away
+    if total <= 0:
+        return p_home, p_away
+    return p_home / total, p_away / total
+
+
+def synthetic_pinnacle(fd: dict, dk: dict) -> dict:
+    """
+    Derive Pinnacle-proxy fields from FD + DK consensus lines.
+
+    Returns a dict shaped like a real Pinnacle books entry so that
+    run_today.py's existing pinnacle_ctx block works unchanged.
+    """
+    no_vig_probs = []
+    for book in (fd, dk):
+        h = american_to_prob(book.get("ml_home"))
+        a = american_to_prob(book.get("ml_away"))
+        if h is not None and a is not None:
+            nv_h, _ = remove_vig(h, a)
+            no_vig_probs.append(nv_h)
+
+    nv_home = round(sum(no_vig_probs) / len(no_vig_probs), 4) \
+              if no_vig_probs else None
+
+    totals = [b.get("total") for b in (fd, dk) if b.get("total") is not None]
+    avg_total = round(sum(totals) / len(totals), 1) if totals else None
+
+    return {
+        # Core probability features — real signal derived from sharp retail lines
+        "pi_close_no_vig_home": nv_home,
+        "pi_open_implied_home": nv_home,   # best proxy without a true open line
+        # Total line
+        "pi_close_total": avg_total,
+        # Movement features — unknown without a real Pinnacle open/close pair
+        "pi_ml_movement":     0.0,
+        "pi_spread_movement": 0.0,
+        "pi_total_movement":  0.0,
+        # Flag so run_today.py can identify synthetic rows if needed
+        "_pi_synthetic": True,
+    }
 
 
 def fetch_lines():
@@ -66,7 +127,10 @@ def parse_events(events, target_date):
     run_model.py expects:
       { game_id, date, commence, home_team, away_team,
         spread_home, total,
-        books: { fanduel: {...}, draftkings: {...} } }
+        books: { fanduel: {...}, draftkings: {...}, pinnacle: {...} } }
+
+    The "pinnacle" entry is synthetic — derived from FD/DK consensus.
+    See module docstring for details.
     """
     games = {}
 
@@ -133,6 +197,13 @@ def parse_events(events, target_date):
 
             games[game_id]["books"][book] = entry
 
+    # ── Synthetic Pinnacle proxy ──────────────────────────────────────────
+    # Computed after all books are parsed so both FD and DK are available.
+    for g in games.values():
+        fd = g["books"].get("fanduel",    {})
+        dk = g["books"].get("draftkings", {})
+        g["books"]["pinnacle"] = synthetic_pinnacle(fd, dk)
+
     # Filter to target date
     filtered = [g for g in games.values() if g["date"] == target_date]
 
@@ -173,21 +244,24 @@ def main():
         json.dump(games, f, indent=2)
 
     # Pretty print summary
-    print(f"\n  {'AWAY':<25} {'HOME':<25} {'FD ML':>7} {'DK ML':>7} {'SPR':>6} {'TOT':>6}  TIME")
-    print("  " + "-" * 95)
+    print(f"\n  {'AWAY':<25} {'HOME':<25} {'FD ML':>7} {'DK ML':>7} {'SPR':>6} {'TOT':>6} {'NV%':>6}  TIME")
+    print("  " + "-" * 103)
     for g in sorted(games, key=lambda x: x["commence"]):
-        fd = g["books"].get("fanduel", {})
-        dk = g["books"].get("draftkings", {})
+        fd  = g["books"].get("fanduel",    {})
+        dk  = g["books"].get("draftkings", {})
+        pi  = g["books"].get("pinnacle",   {})
         fd_ml = f"{int(fd['ml_home']):+d}" if fd.get("ml_home") is not None else "n/a"
         dk_ml = f"{int(dk['ml_home']):+d}" if dk.get("ml_home") is not None else "n/a"
         spr   = f"{g['spread_home']:+.1f}" if g.get("spread_home") is not None else "n/a"
         tot   = str(g["total"])            if g.get("total")       is not None else "n/a"
+        nv    = f"{pi['pi_close_no_vig_home']*100:.1f}%" \
+                if pi.get("pi_close_no_vig_home") is not None else " n/a"
         try:
             t = (pd.to_datetime(g["commence"], utc=True)
                  .tz_convert("US/Eastern").strftime("%-I:%M %p ET"))
         except Exception:
             t = ""
-        print(f"  {g['away_team']:<25} {g['home_team']:<25} {fd_ml:>7} {dk_ml:>7} {spr:>6} {tot:>6}  {t}")
+        print(f"  {g['away_team']:<25} {g['home_team']:<25} {fd_ml:>7} {dk_ml:>7} {spr:>6} {tot:>6} {nv:>6}  {t}")
 
     print(f"\n  Saved {len(games)} games to today_lines.json")
     print("  Run next: python run_model.py")

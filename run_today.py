@@ -76,40 +76,130 @@ PITCHING_FEATS = ["ERA", "FIP", "WHIP", "K/9", "BB/9", "xFIP"]
 
 def _load_live_team_stats(year: int) -> tuple[dict, dict]:
     """
-    Load live season team batting/pitching written by fetch_historical.py step 7.
-    Returns (bat_lookup, pit_lookup) keyed by (full_team_name, season).
+    Load team batting/pitching stats for inference.
+    Returns (bat_lookup, pit_lookup) keyed by both (full_team_name, season)
+    and (abbr, season) so build_inference_row() can look up either form.
+
+    Search order for each parquet:
+      1. data/live/team_{batting|pitching}.parquet   — written by fetch_live_season_stats
+      2. data/historical/team_{batting|pitching}.parquet — written by fetch_historical main()
+
+    When the parquet contains multiple seasons (e.g. 2021–2025 in historical/),
+    we always use the most recent season's rows so inference uses the freshest stats.
+
+    pybaseball stores teams as 3-letter abbreviations ('ATL').  We index under
+    both the abbreviation and the full name so lookups always succeed regardless
+    of which form the caller provides.
     """
-    bat_path = DATA_DIR / "live" / "team_batting.parquet"
-    pit_path = DATA_DIR / "live" / "team_pitching.parquet"
+    def _candidates(filename):
+        return [
+            DATA_DIR / "live"       / filename,
+            DATA_DIR / "historical" / filename,
+        ]
+
+    ABB_TO_FULL = {v: k for k, v in FULL_NAME_TO_ABB.items()}
     bat, pit = {}, {}
 
-    for path, lookup, label in [(bat_path, bat, "batting"),
-                                 (pit_path, pit, "pitching")]:
-        if path.exists():
-            df = pd.read_parquet(path)
-            if "team" in df.columns:
-                for _, row in df.iterrows():
-                    lookup[(str(row["team"]), year)] = row.to_dict()
+    for filename, lookup, label in [
+        ("team_batting.parquet",  bat, "batting"),
+        ("team_pitching.parquet", pit, "pitching"),
+    ]:
+        path = next((p for p in _candidates(filename) if p.exists()), None)
+        if path is None:
+            print(f"  [WARN] {filename} not found in data/live/ or data/historical/ — "
+                  "run fetch_historical.py")
+            continue
+
+        df = pd.read_parquet(path)
+        if "team" not in df.columns:
+            print(f"  [WARN] {filename} has no 'team' column — skipping")
+            continue
+
+        # If the parquet covers multiple seasons, use the most recent one.
+        # historical/team_batting.parquet has 2021–2025 (150 rows total = 30×5).
+        # We want the 2025 rows (or the single-season live/ file).
+        if "season" in df.columns:
+            latest_season = int(df["season"].max())
+            df = df[df["season"] == latest_season].copy()
+            effective_year = latest_season
         else:
-            print(f"  [WARN] data/live/team_{label}.parquet not found — "
-                  "run fetch_historical.py to populate live stats")
+            effective_year = year
+
+        is_batting  = label == "batting"
+        is_pitching = label == "pitching"
+        loaded = 0
+
+        for _, row in df.iterrows():
+            abbr      = str(row["team"]).strip().upper()
+            full_name = ABB_TO_FULL.get(abbr, abbr)
+
+            # BUG B FIX: The old threshold (G < 5 AND extreme values) let
+            # early-season noise through. Baltimore OPS=0.464 and Cincinnati
+            # OPS=0.388 passed because they're between 0.250 and 1.200, even
+            # though they're meaningless 3-game samples. The model was trained
+            # on full-season stats (April-Sept averages), so feeding it tiny
+            # samples produces garbage predictions.
+            #
+            # New approach: require MIN_GAMES_CURRENT before trusting current
+            # season stats. Below that, use prior-year stats as fallback
+            # (stored separately and indexed under year-1). This means the
+            # first 2 weeks of the season use last year's team stats, which
+            # is far more accurate than a 3-game sample.
+            MIN_GAMES_CURRENT = 15
+            games_played = float(row.get("G", 0) or 0)
+            if games_played < MIN_GAMES_CURRENT:
+                continue   # too early — caller falls back to year-1 stats
+
+            lookup[(full_name,  year)] = row.to_dict()
+            lookup[(abbr,       year)] = row.to_dict()
+            # Also index under the effective_year so year-1 fallbacks work
+            lookup[(full_name,  effective_year)] = row.to_dict()
+            lookup[(abbr,       effective_year)] = row.to_dict()
+            loaded += 1
+
+        src = "live/" if "live" in str(path) else "historical/"
+        print(f"  {label.capitalize()} stats: {loaded} teams from {src}{filename} "
+              f"(season {effective_year})")
+
     return bat, pit
 
 
 def _load_bvp_data() -> pd.DataFrame | None:
-    bvp_path = DATA_DIR / "historical" / "odds" / "batter_vs_pitcher_career.csv"
-    if not bvp_path.exists():
+    # Check all known locations for the BvP file.
+    # The odds folder contains batter_vs_pitcher_career.csv (36MB per screenshot).
+    candidates = [
+        DATA_DIR / "historical" / "odds" / "batter_vs_pitcher_career.csv",
+        DATA_DIR / "historical" / "batter_vs_pitcher_career.csv",
+        DATA_DIR / "historical" / "odds" / "bvp_career.csv",
+    ]
+    bvp_path = next((c for c in candidates if c.exists()), None)
+    if bvp_path is None:
+        print("  BvP data: not found (expected batter_vs_pitcher_career.csv in "
+              "data/historical/odds/)")
         return None
     df = pd.read_csv(bvp_path, low_memory=False)
-    if {"batter", "pitcher", "PA", "AB", "H", "HR", "BB", "K"} - set(df.columns):
+    required = {"batter", "pitcher", "PA", "AB", "H", "HR", "BB", "K"}
+    if required - set(df.columns):
+        print(f"  BvP data: missing columns {required - set(df.columns)} — skipping")
         return None
+    print(f"  BvP data: {len(df):,} rows from {bvp_path.name}")
     return df
 
 
 def _load_lineup_lookup() -> dict:
-    """Load game_lineups.parquet → dict keyed by (game_date, home_abbr)."""
-    path = DATA_DIR / "historical" / "game_lineups.parquet"
-    if not path.exists():
+    """Load game_lineups.parquet → dict keyed by (game_date, home_abbr).
+
+    fetch_historical.py saves this to data/historical/game_lineups.parquet.
+    Keys are (YYYY-MM-DD string, 3-letter home abbr).
+    """
+    candidates = [
+        DATA_DIR / "historical" / "game_lineups.parquet",
+        DATA_DIR / "historical" / "odds" / "game_lineups.parquet",
+    ]
+    path = next((p for p in candidates if p.exists()), None)
+    if path is None:
+        # game_lineups.parquet is built from plate_appearances_raw_*.csv files
+        # by fetch_historical.py step 5d. Run fetch_historical.py to populate it.
         return {}
     df = pd.read_parquet(path)
     required = {"game_date", "home_abbr", "home_batters", "away_batters",
@@ -118,7 +208,13 @@ def _load_lineup_lookup() -> dict:
         return {}
     out = {}
     for _, row in df.iterrows():
-        key = (str(row["game_date"]), str(row["home_abbr"]))
+        # Normalise game_date: Timestamp → YYYY-MM-DD string
+        gd = row["game_date"]
+        try:
+            gd = pd.Timestamp(gd).date().isoformat()
+        except Exception:
+            gd = str(gd)[:10]
+        key = (gd, str(row["home_abbr"]))
         out[key] = {
             "home_batters": [b for b in str(row["home_batters"]).split("|") if b],
             "away_batters": [b for b in str(row["away_batters"]).split("|") if b],
@@ -280,6 +376,31 @@ def build_inference_row(home_team: str, away_team: str,
     row["bvp_ops_diff"]    = _diff(h_bvp["bvp_ops"],    a_bvp["bvp_ops"])
     row["bvp_k_rate_diff"] = _diff(h_bvp["bvp_k_rate"], a_bvp["bvp_k_rate"])
 
+    # Fill any remaining BvP NaNs with neutral values.
+    # During training, NaN BvP features were filled with their column medians
+    # (via build_features in train_model.py). At inference, predict_game()
+    # would fill them with -999 — far outside the training distribution,
+    # which corrupts every prediction. We fill with known neutral constants
+    # so the model sees values consistent with what it learned on.
+    BVP_NEUTRAL = {
+        "home_bvp_avg":     0.250,   # league-average batting average
+        "home_bvp_ops":     0.720,   # league-average OPS
+        "home_bvp_k_rate":  0.225,   # league-average strikeout rate
+        "home_bvp_bb_rate": 0.085,   # league-average walk rate
+        "home_bvp_hr_rate": 0.032,   # league-average HR rate
+        "away_bvp_avg":     0.250,
+        "away_bvp_ops":     0.720,
+        "away_bvp_k_rate":  0.225,
+        "away_bvp_bb_rate": 0.085,
+        "away_bvp_hr_rate": 0.032,
+        "bvp_avg_diff":     0.0,     # neutral: no advantage either way
+        "bvp_ops_diff":     0.0,
+        "bvp_k_rate_diff":  0.0,
+    }
+    for col, neutral in BVP_NEUTRAL.items():
+        if col in row and (row[col] is None or (isinstance(row[col], float) and np.isnan(row[col]))):
+            row[col] = neutral
+
     return row
 
 
@@ -387,10 +508,10 @@ def fetch_todays_lines(target_date: str) -> pd.DataFrame:
             "dk_total_under_juice":  dk.get("total_under_juice"),
             "_pi_close_no_vig_home": pi.get("pi_close_no_vig_home"),
             "_pi_open_implied_home": pi.get("pi_open_implied_home"),
-            "_pi_ml_movement":       g.get("pinnacle_ml_movement",     0.0),
-            "_pi_spread_movement":   g.get("pinnacle_spread_movement", 0.0),
-            "_pi_total_movement":    g.get("pinnacle_total_movement",  0.0),
-            "_pi_close_total":       pi.get("total"),
+            "_pi_ml_movement":       pi.get("pi_ml_movement",     0.0),
+            "_pi_spread_movement":   pi.get("pi_spread_movement", 0.0),
+            "_pi_total_movement":    pi.get("pi_total_movement",  0.0),
+            "_pi_close_total":       pi.get("pi_close_total"),
         })
 
     df = pd.DataFrame(rows)
@@ -541,6 +662,26 @@ def run(target_date: str | None = None, skip_injuries: bool = False):
     year = int(target_date[:4])
     bat_lookup, pit_lookup = _load_live_team_stats(year)
     print(f"  Live team stats: {len(bat_lookup)} batting / {len(pit_lookup)} pitching")
+
+    # ── Lookup diagnostic — verify team name resolution ───────────────────
+    # Checks that full team names from today_lines.json resolve to real stats.
+    # If OPS shows MISSING the ABB_TO_FULL map has a gap for that team.
+    print()
+    _diag_teams = sorted(set(games["home_team"].tolist() + games["away_team"].tolist()))
+    _any_missing = False
+    for _t in _diag_teams:
+        _brow = bat_lookup.get((_t, year), bat_lookup.get((_t, year - 1), {}))
+        _prow = pit_lookup.get((_t, year), pit_lookup.get((_t, year - 1), {}))
+        _ops  = _brow.get("OPS",  "MISSING")
+        _era  = _prow.get("ERA",  "MISSING")
+        _status = "OK" if _ops != "MISSING" else "NO STATS"
+        if _ops == "MISSING":
+            _any_missing = True
+        print(f"  [LOOKUP] {_t:<30} OPS={str(_ops):<8}  ERA={str(_era):<6}  {_status}")
+    if _any_missing:
+        print("  [WARN] Teams with NO STATS will produce garbage model predictions.")
+    print()
+    # ── End lookup diagnostic ─────────────────────────────────────────────
 
     bvp_df        = _load_bvp_data()
     lineup_lookup = _load_lineup_lookup()

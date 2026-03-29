@@ -219,32 +219,39 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
         df[c] = df[c].fillna(med)
 
     # ── BvP features ──────────────────────────────────────────────────────
-    # These are present only when fetch_historical.py has been run with both
-    # batter_vs_pitcher_career.csv and game_lineups.parquet available.
-    # Missing columns get NaN; the model handles them via the -999 fillna
-    # in the training loop (same treatment as sparse Pinnacle data).
+    # Neutral fill values — league-average constants that match what
+    # run_today.py uses at inference time. Using these instead of -999
+    # means the model sees realistic values when H2H data is missing,
+    # and inference/training distributions stay consistent.
+    BVP_NEUTRAL = {
+        "home_bvp_avg":     0.250, "home_bvp_ops":     0.720,
+        "home_bvp_k_rate":  0.225, "home_bvp_bb_rate": 0.085,
+        "home_bvp_hr_rate": 0.032, "away_bvp_avg":     0.250,
+        "away_bvp_ops":     0.720, "away_bvp_k_rate":  0.225,
+        "away_bvp_bb_rate": 0.085, "away_bvp_hr_rate": 0.032,
+        "bvp_avg_diff":     0.0,   "bvp_ops_diff":     0.0,
+        "bvp_k_rate_diff":  0.0,
+    }
+
     missing_bvp = [c for c in BVP_FEATURE_COLS if c not in df.columns]
     if missing_bvp:
         print(f"  [warn] {len(missing_bvp)} BvP features absent — "
-              f"run fetch_historical.py after bbref scraper completes")
+              f"filling with neutral constants. Run fetch_historical.py to populate.")
         for c in missing_bvp:
-            df[c] = np.nan
+            df[c] = BVP_NEUTRAL.get(c, 0.0)
     else:
-        # Report coverage so we know how much of the training set has real H2H data
         bvp_cov = df["home_bvp_avg"].notna().mean()
-        print(f"  BvP feature coverage: {bvp_cov:.1%} of training rows have H2H data")
+        print(f"  BvP coverage: {bvp_cov:.1%} of training rows have real H2H data")
         if bvp_cov < 0.30:
-            print("  [warn] BvP coverage < 30% — signal will be weak. "
-                  "Re-run fetch_historical.py once more PA files are scraped.")
+            print("  [warn] BvP coverage < 30% — features will contribute mostly noise.")
+            print("         Re-run fetch_historical.py to improve coverage before retraining.")
 
-    # Fill BvP NaNs with column medians so they degrade gracefully when absent.
-    # Do NOT fill with 0 — a 0 AVG looks like a pitcher who dominates completely,
-    # which would be worse than saying "no data".
+    # Fill any remaining BvP NaNs with neutral constants (NOT -999 or column median).
+    # -999 is far outside the training distribution and corrupts predictions.
+    # Column median is also wrong when coverage is near-zero (median = neutral constant anyway).
+    # Neutral constants match what run_today.py sends at inference, keeping distributions aligned.
     for c in BVP_FEATURE_COLS:
-        med = df[c].median() if df[c].notna().any() else np.nan
-        if pd.notna(med):
-            df[c] = df[c].fillna(med)
-        # Remaining NaNs (all-null column) stay NaN → become -999 in training loop
+        df[c] = df[c].fillna(BVP_NEUTRAL.get(c, 0.0))
 
     # ── Binary target columns (FIX 2) ────────────────────────────────────
     # home_win: already present from fetch_historical
@@ -456,7 +463,7 @@ def backtest(df_full: pd.DataFrame, backtest_years: int | None = None):
     print(f"  Seasons to evaluate: {seasons}")
 
     from sklearn.metrics import roc_auc_score
-    from model import american_to_prob as _a2p, remove_vig as _vig
+    from model import _american_to_prob as _a2p, _remove_vig as _vig
 
     EDGE_THRESHOLDS = [(0.15, 3), (0.10, 2), (0.07, 1)]
 

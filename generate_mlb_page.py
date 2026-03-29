@@ -1,57 +1,51 @@
 """
 generate_mlb_page.py — MLB Picks + Results Bridge
 ===================================================
-Responsibilities:
-  1. Convert today's picks_today.json → mlb_picks_YYYYMMDD.csv
-     (format that generate_picks_page.py expects)
-  2. Fetch yesterday's ESPN scores and grade any pending bets, writing
-     WIN / LOSS / PUSH + PNL into bet_results.csv
-  3. Call generate_picks_page.py to rebuild index.html and push to GitHub
+Reads:   data/live/picks_today.json         (written by run_today.py)
+Writes:  MLB/Daily Picks CSV/mlb_picks_YYYYMMDD.csv   (read by generate_picks_page.py)
+         MLB/Results/bet_results.csv                  (read by generate_picks_page.py)
+Then:    calls generate_picks_page.py to rebuild index.html and push to GitHub
 
-Directory layout written:
-  <BASE_DIR>/Results/
-      mlb_picks_YYYYMMDD.csv   <- today's picks (one file per day)
-      bet_results.csv          <- all graded bets (appended nightly)
+Daily workflow:
+  python pull_lines.py
+  python run_today.py
+  python generate_mlb_page.py       ← this file
 
-  Also mirrors both files to the NBA Model Files folder so that
-  generate_picks_page.py can find them at its expected SPORT_CONFIG["mlb"] paths.
-
-Usage:
-    python generate_mlb_page.py              # normal: write picks + grade + push
-    python generate_mlb_page.py --grade-only # skip picks, just grade + push
+Optional flags:
+  python generate_mlb_page.py --grade-only   # skip writing picks CSV, just grade + push
+  python generate_mlb_page.py --no-push      # write everything but skip the git push
 """
 
-import os, sys, re, json, importlib.util, argparse
+import argparse, importlib.util, json, os, re, sys
 import numpy as np
 import pandas as pd
 import requests
 from datetime import datetime, date, timedelta
 from pathlib import Path
 
-# ── Config paths ───────────────────────────────────────────────────────────────
-from config import LIVE_DIR, LOGS_DIR, BET_LOG_CSV, BASE_DIR
+# ── Config ─────────────────────────────────────────────────────────────────────
+from config import LIVE_DIR, BASE_DIR
 
-# Results folder lives directly inside MLB Model Files
-RESULTS_DIR = os.path.join(BASE_DIR, "Results")
-PICKS_JSON  = os.path.join(LIVE_DIR, "picks_today.json")
+PICKS_JSON   = Path(LIVE_DIR) / "picks_today.json"
 
-# generate_picks_page.py hub script
-NBA_OUTPUT_DIR = r"C:\Users\Kctob\OneDrive\Documents\NBA Model Files\ML and Spread"
-GPP_PATH       = os.path.join(NBA_OUTPUT_DIR, "generate_picks_page.py")
+# Output dirs — where generate_picks_page.py looks for MLB data
+NBA_OUTPUT   = r"C:\Users\Kctob\OneDrive\Documents\NBA Model Files\ML and Spread"
+MLB_PICKS_DIR   = Path(NBA_OUTPUT) / "MLB" / "Daily Picks CSV"
+MLB_RESULTS_DIR = Path(NBA_OUTPUT) / "MLB" / "Results"
+MLB_RESULTS_CSV = MLB_RESULTS_DIR / "bet_results.csv"
 
-# Where generate_picks_page.py expects MLB data (its SPORT_CONFIG["mlb"] paths)
-GPP_MLB_PICKS_DIR    = os.path.join(NBA_OUTPUT_DIR, "MLB", "Daily Picks CSV")
-GPP_MLB_RESULTS_FILE = os.path.join(NBA_OUTPUT_DIR, "MLB", "Results", "bet_results.csv")
+# Also mirror into MLB Model Files/Results for local record-keeping
+LOCAL_RESULTS_DIR = Path(BASE_DIR) / "Results"
+LOCAL_RESULTS_CSV = LOCAL_RESULTS_DIR / "bet_results.csv"
 
-Path(RESULTS_DIR).mkdir(parents=True, exist_ok=True)
-Path(GPP_MLB_PICKS_DIR).mkdir(parents=True, exist_ok=True)
-Path(os.path.dirname(GPP_MLB_RESULTS_FILE)).mkdir(parents=True, exist_ok=True)
+# Path to generate_picks_page.py
+GPP_PATH = Path(NBA_OUTPUT) / "generate_picks_page.py"
 
-ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard"
+# ESPN for grading
+ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb"
 HEADERS   = {"User-Agent": "Mozilla/5.0"}
 
-
-# ── Team abbreviation map ──────────────────────────────────────────────────────
+# Team abbreviation map (full name → 3-letter)
 FULL_TO_ABBR = {
     "Arizona Diamondbacks": "ARI",  "Atlanta Braves": "ATL",
     "Baltimore Orioles": "BAL",     "Boston Red Sox": "BOS",
@@ -72,13 +66,17 @@ FULL_TO_ABBR = {
 }
 
 def _abbr(name: str) -> str:
-    """Return 3-letter abbreviation for a full team name."""
     return FULL_TO_ABBR.get(str(name).strip(), str(name).strip()[:3].upper())
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# FORMAT HELPERS
+# 1. CONVERT picks_today.json → mlb_picks_YYYYMMDD.csv
 # ═══════════════════════════════════════════════════════════════════════════════
+
+def _units_to_tier(units: int) -> str:
+    if units >= 3: return "HIGH CONFIDENCE"
+    if units >= 2: return "MEDIUM CONFIDENCE"
+    return "LOW CONFIDENCE"
 
 def _fmt_odds(odds) -> str:
     try:
@@ -87,33 +85,20 @@ def _fmt_odds(odds) -> str:
     except (TypeError, ValueError):
         return "—"
 
-
-def _units_to_tier(units: int) -> str:
-    if units >= 3:   return "HIGH CONFIDENCE"
-    if units >= 2:   return "MEDIUM CONFIDENCE"
-    return "LOW CONFIDENCE"
-
-
 def _game_time_et(commence: str) -> str:
-    """Convert UTC commence time to ET string, Windows-safe."""
     try:
         utc = pd.to_datetime(commence, utc=True)
         et  = utc.tz_convert("US/Eastern")
-        # %-I is Linux-only; strip leading zero manually for Windows
-        s = et.strftime("%I:%M %p ET")
+        s   = et.strftime("%I:%M %p ET")
         return s.lstrip("0") or s
     except Exception:
         return ""
 
-
-def _bet_signal(pick: dict, ht: str = "", at: str = "") -> str:
+def _bet_signal(pick: dict, ht: str, at: str) -> str:
     """
-    Build the BET_SIGNAL string generate_picks_page.py parse_signal() expects:
-        "BET (NYY) ML (-142) [HIGH CONFIDENCE]"
-
-    The team-tracker regex in _build_analytics_section:
-        r'\\(([A-Z]+)\\s'
-    requires the abbreviation in parens followed by a space.
+    Build the BET_SIGNAL string parse_signal() in generate_picks_page.py expects.
+    Format: "BET (ABB) ML (-142) [HIGH CONFIDENCE]"
+    The team-tracker regex needs the abbreviation in parens followed by a space.
     """
     market = str(pick.get("type", pick.get("market", "ML"))).upper()
     units  = int(pick.get("units", 1))
@@ -123,21 +108,24 @@ def _bet_signal(pick: dict, ht: str = "", at: str = "") -> str:
     if market == "ML":
         abbr  = _abbr(pick.get("team", ht))
         label = f"({abbr}) ML"
+
     elif market in ("SPREAD", "RL"):
         team_str = str(pick.get("team", ht))
-        # team may look like "New York Yankees -1.5" — grab first word group
-        abbr  = _abbr(team_str.split()[0]) if team_str else _abbr(ht)
-        spread = pick.get("spread", "")
-        if isinstance(spread, (int, float)):
-            label = f"({abbr}) RL {spread:+.1f}"
-        else:
+        # Team field may be "Atlanta Braves -1.5" — grab name portion
+        abbr     = _abbr(" ".join(team_str.split()[:-1]) if team_str.split() else team_str)
+        spread   = pick.get("spread", pick.get("spread_line", ""))
+        try:
+            label = f"({abbr}) RL {float(spread):+.1f}"
+        except (TypeError, ValueError):
             label = f"({abbr}) RL"
+
     elif market == "TOTAL":
         direction = str(pick.get("direction", pick.get("side", "OVER"))).upper()
-        ha = _abbr(pick.get("home_team", ht))
-        aa = _abbr(pick.get("away_team", at))
-        line = pick.get("total_line", "")
+        ha    = _abbr(pick.get("home_team", ht))
+        aa    = _abbr(pick.get("away_team", at))
+        line  = pick.get("total_line", "")
         label = f"({ha}/{aa}) {direction} {line}"
+
     else:
         abbr  = _abbr(pick.get("team", ht))
         label = f"({abbr}) {market}"
@@ -145,16 +133,13 @@ def _bet_signal(pick: dict, ht: str = "", at: str = "") -> str:
     return f"BET {label} ({odds}) [{tier}]"
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 1. WRITE TODAY'S PICKS CSV
-# ═══════════════════════════════════════════════════════════════════════════════
+def write_picks_csv(games: list, date_str: str) -> Path | None:
+    """
+    Flatten picks_today.json games list → one CSV row per pick.
+    Returns the path written, or None if nothing to write.
+    """
+    MLB_PICKS_DIR.mkdir(parents=True, exist_ok=True)
 
-def write_picks_csv(games: list, date_str: str) -> str | None:
-    """
-    Flatten the games list from picks_today.json into one row per pick and
-    write to both RESULTS_DIR and the GPP mirror location.
-    Returns the local path written, or None if nothing to write.
-    """
     rows = []
     for game in games:
         ht    = game.get("home_team", "")
@@ -162,197 +147,191 @@ def write_picks_csv(games: list, date_str: str) -> str | None:
         gtime = _game_time_et(game.get("commence", ""))
 
         for pick in game.get("picks", []):
-            market = str(pick.get("type", "ML")).upper()
-
+            market = str(pick.get("type", pick.get("market", "ML"))).upper()
             signal = _bet_signal(pick, ht, at)
 
-            # PRED_MARGIN: run diff for RL/ML, predicted total for totals
+            # PRED_MARGIN: model probability × 100 for display
             try:
-                if market == "TOTAL":
-                    pred_margin = float(pick.get("pred_total", 0) or 0)
-                else:
-                    pred_margin = float(pick.get("model_diff", 0) or 0)
+                pred_margin = round(float(pick.get("model_prob", 0)) * 100
+                                    - float(pick.get("book_prob",  0)) * 100, 1)
             except (TypeError, ValueError):
                 pred_margin = 0.0
 
-            # VEGAS_SPREAD column: spread for RL, total line for totals, ML odds otherwise
+            # VEGAS_SPREAD: the line being bet
             if market in ("SPREAD", "RL"):
-                vegas = str(pick.get("spread", "—"))
+                vegas = str(pick.get("spread", pick.get("spread_line", "—")))
             elif market == "TOTAL":
                 vegas = str(pick.get("total_line", "—"))
             else:
                 vegas = _fmt_odds(pick.get("odds"))
 
+            edge_pct = float(pick.get("edge", 0))
+
             rows.append({
-                "DATE":          date_str,
-                "MATCHUP":       f"{at} @ {ht}",
-                "BET_SIGNAL":    signal,
-                "VEGAS_SPREAD":  vegas,
-                "SPREAD_EDGE":   f"{float(pick.get('edge', 0)):+.1f}%",
-                "MODEL_PRED":    f"{pick.get('model_prob', 0):.1f}% (model) vs {pick.get('book_prob', 0):.1f}% (book)",
-                "PRED_MARGIN":   round(pred_margin, 2),
-                "BOOK":          str(pick.get("book", "")).upper(),
-                "ODDS":          _fmt_odds(pick.get("odds")),
-                "UNITS":         int(pick.get("units", 1)),
-                "MARKET":        market,
-                "GAME_TIME":     gtime,
-                "HOME_TEAM":     ht,
-                "AWAY_TEAM":     at,
-                "HOME_INJURIES": "",
-                "AWAY_INJURIES": "",
+                "DATE":        date_str,
+                "MATCHUP":     f"{at} @ {ht}",
+                "BET_SIGNAL":  signal,
+                "VEGAS_SPREAD": vegas,
+                "SPREAD_EDGE": f"{edge_pct*100:+.1f}%",
+                "MODEL_PRED":  f"{pick.get('model_prob',0)*100:.1f}% (model) vs "
+                               f"{pick.get('book_prob',0)*100:.1f}% (book)",
+                "PRED_MARGIN": pred_margin,
+                "BOOK":        str(pick.get("book", "")).upper(),
+                "ODDS":        _fmt_odds(pick.get("odds")),
+                "UNITS":       int(pick.get("units", 1)),
+                "MARKET":      market,
+                "GAME_TIME":   gtime,
             })
 
     if not rows:
-        print("  No pick rows to write.")
+        print("  No picks to write.")
         return None
 
-    df       = pd.DataFrame(rows)
+    date_num  = date_str.replace("-", "")
+    out_path  = MLB_PICKS_DIR / f"mlb_picks_{date_num}.csv"
+    df        = pd.DataFrame(rows)
+    df.to_csv(out_path, index=False)
+    print(f"  Picks CSV → {out_path}  ({len(rows)} rows)")
+
+    # Mirror to local Results dir
+    LOCAL_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    mirror = LOCAL_RESULTS_DIR / f"mlb_picks_{date_num}.csv"
+    df.to_csv(mirror, index=False)
+    print(f"  Mirror    → {mirror}")
+
+    return out_path
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 2. GRADE YESTERDAY'S BETS via ESPN
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _fetch_espn_scores(date_str: str) -> dict:
+    """
+    Fetch ESPN MLB scores for a given date.
+    Returns dict keyed by frozenset({away_abbr, home_abbr}) →
+        {home_score, away_score, home_abbr, away_abbr}
+    """
     date_num = date_str.replace("-", "")
-
-    local_path = os.path.join(RESULTS_DIR, f"mlb_picks_{date_num}.csv")
-    df.to_csv(local_path, index=False)
-    print(f"  Picks  → {local_path}  ({len(df)} picks)")
-
-    gpp_path = os.path.join(GPP_MLB_PICKS_DIR, f"mlb_picks_{date_num}.csv")
-    df.to_csv(gpp_path, index=False)
-    print(f"  Mirror → {gpp_path}")
-
-    return local_path
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# 2. FETCH ESPN SCORES & GRADE YESTERDAY'S BETS
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def _fetch_espn_scores(game_date: str) -> list:
-    """Return list of completed game result dicts for YYYY-MM-DD."""
-    ds = game_date.replace("-", "")
     try:
-        r = requests.get(ESPN_BASE, params={"dates": ds, "limit": 50},
-                         headers=HEADERS, timeout=15)
+        r = requests.get(
+            f"{ESPN_BASE}/scoreboard",
+            params={"dates": date_num, "limit": 30},
+            headers=HEADERS, timeout=12,
+        )
         r.raise_for_status()
         events = r.json().get("events", [])
     except Exception as e:
-        print(f"  [warn] ESPN fetch failed for {game_date}: {e}")
-        return []
+        print(f"  [warn] ESPN fetch failed for {date_str}: {e}")
+        return {}
 
-    games = []
+    results = {}
     for ev in events:
         try:
-            comp = ev.get("competitions", [{}])[0]
+            comp  = ev["competitions"][0]
+            teams = comp["competitors"]
+            home  = next(t for t in teams if t["homeAway"] == "home")
+            away  = next(t for t in teams if t["homeAway"] == "away")
             if not comp.get("status", {}).get("type", {}).get("completed", False):
                 continue
-            home = next(c for c in comp["competitors"] if c["homeAway"] == "home")
-            away = next(c for c in comp["competitors"] if c["homeAway"] == "away")
-            hs   = int(float(home.get("score", 0)))
-            as_  = int(float(away.get("score", 0)))
-            games.append({
-                "home_team":  home["team"].get("displayName", ""),
-                "away_team":  away["team"].get("displayName", ""),
-                "home_abbr":  home["team"].get("abbreviation", "").upper(),
-                "away_abbr":  away["team"].get("abbreviation", "").upper(),
-                "home_score": hs,
-                "away_score": as_,
-                "total":      hs + as_,
-                "run_diff":   hs - as_,
-            })
+            ha = home["team"]["abbreviation"].upper()
+            aa = away["team"]["abbreviation"].upper()
+            hs = int(float(home.get("score", 0) or 0))
+            as_ = int(float(away.get("score", 0) or 0))
+            key = frozenset([ha, aa])
+            results[key] = {"home_abbr": ha, "away_abbr": aa,
+                            "home_score": hs, "away_score": as_}
         except Exception:
             continue
 
-    print(f"  ESPN: {len(games)} completed games for {game_date}")
-    return games
+    print(f"  ESPN scores fetched: {len(results)} completed games on {date_str}")
+    return results
 
 
-def _name_match(a: str, b: str) -> bool:
-    """Loose match: a is in b, b is in a, or first 3 chars match."""
-    a, b = a.lower().strip(), b.lower().strip()
-    if not a or not b:
-        return False
-    return a in b or b in a or (len(a) >= 3 and len(b) >= 3 and a[:3] == b[:3])
-
-
-def _find_game(matchup: str, results: list) -> dict | None:
-    """Parse 'away @ home' matchup string and find matching ESPN result."""
-    parts = matchup.split("@")
-    if len(parts) != 2:
-        return None
-    at_name = parts[0].strip()
-    ht_name = parts[1].strip()
-
-    for g in results:
-        hm = _name_match(ht_name, g["home_team"]) or _name_match(ht_name, g["home_abbr"])
-        am = _name_match(at_name, g["away_team"]) or _name_match(at_name, g["away_abbr"])
-        if hm and am:
-            return g
-    return None
-
-
-def _grade_row(row: pd.Series, results: list) -> dict | None:
+def _grade_pick(row: pd.Series, espn_results: dict) -> dict | None:
     """
-    Grade a single picks-CSV row against ESPN results.
-    Returns a dict with RESULT, PNL, HOME_SCORE, AWAY_SCORE, or None if
-    the game can't be matched / isn't finished.
+    Grade one row from the picks CSV against ESPN results.
+    Returns grading dict or None if the game can't be matched.
     """
-    matchup = str(row.get("MATCHUP", ""))
+    matchup = str(row.get("MATCHUP", ""))       # "KC @ ATL"
     signal  = str(row.get("BET_SIGNAL", ""))
     market  = str(row.get("MARKET", "ML")).upper()
 
-    game = _find_game(matchup, results)
+    # Parse teams from MATCHUP string "Away @ Home"
+    parts = [p.strip() for p in matchup.split("@")]
+    if len(parts) != 2:
+        return None
+    away_full, home_full = parts
+
+    # Convert full names to abbreviations for ESPN lookup
+    # MATCHUP may already contain abbreviations (3 chars) or full names
+    def _to_abbr(name):
+        if name in FULL_TO_ABBR:
+            return FULL_TO_ABBR[name]
+        if len(name) <= 3:
+            return name.upper()
+        # Try suffix matching
+        for full, abbr in FULL_TO_ABBR.items():
+            if full.endswith(name) or name.endswith(full.split()[-1]):
+                return abbr
+        return name[:3].upper()
+
+    ha = _to_abbr(home_full)
+    aa = _to_abbr(away_full)
+    key = frozenset([ha, aa])
+
+    game = espn_results.get(key)
     if game is None:
         return None
 
     hs, as_ = game["home_score"], game["away_score"]
-    tot     = game["total"]
     result  = None
 
     if market == "ML":
-        # Extract abbreviation from "(NYY) ML" in BET_SIGNAL
-        m = re.search(r'\(([A-Z]{2,4})\)', signal)
-        abbr = m.group(1) if m else ""
-        home_abbr = _abbr(game["home_team"])
-        away_abbr = _abbr(game["away_team"])
-        if abbr == home_abbr or _name_match(abbr, game["home_abbr"]):
-            result = "WIN" if hs > as_ else "LOSS"
-        elif abbr == away_abbr or _name_match(abbr, game["away_abbr"]):
-            result = "WIN" if as_ > hs else "LOSS"
-        else:
-            # Fallback: try matching against full names in the matchup
-            at_name = matchup.split("@")[0].strip()
-            ht_name = matchup.split("@")[1].strip() if "@" in matchup else ""
-            if _name_match(abbr, ht_name):
-                result = "WIN" if hs > as_ else "LOSS"
-            else:
-                result = "WIN" if as_ > hs else "LOSS"
+        # Find the team being bet on from the signal: "(ATL) ML"
+        m = re.search(r'\(([A-Z/]+)\)', signal)
+        if not m:
+            return None
+        bet_abbr = m.group(1)
+        if "/" in bet_abbr:
+            return None   # totals signal slipped through — skip
+        bet_home = (bet_abbr == ha)
+        won = (hs > as_) if bet_home else (as_ > hs)
+        result = "WIN" if won else ("PUSH" if hs == as_ else "LOSS")
 
     elif market in ("SPREAD", "RL"):
-        m = re.search(r'\(([A-Z]{2,4})\)', signal)
-        abbr = m.group(1) if m else ""
-        home_abbr = _abbr(game["home_team"])
-        is_home = (abbr == home_abbr or _name_match(abbr, game["home_abbr"]))
-        if is_home:
-            push   = abs((hs - as_) - 1.5) < 0.01
-            result = "PUSH" if push else ("WIN" if (hs - as_) > 1.5 else "LOSS")
+        # Run line is always ±1.5; home covers if wins by 2+
+        m = re.search(r'\(([A-Z]+)\)\s+RL\s+([-+]?\d+\.?\d*)', signal)
+        if not m:
+            return None
+        bet_abbr = m.group(1)
+        line     = float(m.group(2))
+        bet_home = (bet_abbr == ha)
+        margin   = hs - as_
+        if bet_home:
+            covered = (margin + line) > 0
+            push    = (margin + line) == 0
         else:
-            push   = abs((as_ - hs) - 1.5) < 0.01
-            result = "PUSH" if push else ("WIN" if (as_ - hs) > 1.5 else "LOSS")
+            covered = (-margin + (-line)) > 0
+            push    = (-margin + (-line)) == 0
+        result = "WIN" if covered else ("PUSH" if push else "LOSS")
 
     elif market == "TOTAL":
-        dm = re.search(r'\b(OVER|UNDER)\b', signal, re.IGNORECASE)
-        direction = dm.group(1).upper() if dm else "OVER"
-        lm = re.search(r'(?:OVER|UNDER)\s+([\d.]+)', signal, re.IGNORECASE)
-        try:
-            line = float(lm.group(1)) if lm else float(row.get("VEGAS_SPREAD", 9))
-        except (TypeError, ValueError):
-            line = 9.0
+        m = re.search(r'\(([A-Z/]+)\)\s+(OVER|UNDER)\s+([\d.]+)', signal, re.IGNORECASE)
+        if not m:
+            return None
+        direction = m.group(2).upper()
+        line      = float(m.group(3))
+        total     = hs + as_
         if direction == "OVER":
-            result = "WIN" if tot > line else ("PUSH" if tot == line else "LOSS")
+            result = "WIN" if total > line else ("PUSH" if total == line else "LOSS")
         else:
-            result = "WIN" if tot < line else ("PUSH" if tot == line else "LOSS")
+            result = "WIN" if total < line else ("PUSH" if total == line else "LOSS")
 
     if result is None:
         return None
 
-    # Calculate PNL
+    # PNL calculation
     try:
         odds_str = str(row.get("ODDS", "-110")).replace("+", "")
         odds_val = float(odds_str)
@@ -376,17 +355,14 @@ def _grade_row(row: pd.Series, results: list) -> dict | None:
 
 
 def grade_yesterdays_bets(yesterday: str) -> pd.DataFrame:
-    """
-    Load yesterday's picks CSV, fetch ESPN scores, grade each bet.
-    Returns DataFrame of graded rows, empty if nothing to grade.
-    """
-    date_num = yesterday.replace("-", "")
+    """Load yesterday's picks CSV, fetch ESPN scores, grade every bet."""
+    date_num  = yesterday.replace("-", "")
+    picks_csv = MLB_PICKS_DIR / f"mlb_picks_{date_num}.csv"
 
-    # Look in local Results dir first, then GPP mirror
-    picks_csv = os.path.join(RESULTS_DIR, f"mlb_picks_{date_num}.csv")
-    if not os.path.exists(picks_csv):
-        picks_csv = os.path.join(GPP_MLB_PICKS_DIR, f"mlb_picks_{date_num}.csv")
-    if not os.path.exists(picks_csv):
+    # Fallback: check local mirror
+    if not picks_csv.exists():
+        picks_csv = LOCAL_RESULTS_DIR / f"mlb_picks_{date_num}.csv"
+    if not picks_csv.exists():
         print(f"  No picks CSV found for {yesterday} — skipping grading")
         return pd.DataFrame()
 
@@ -397,15 +373,20 @@ def grade_yesterdays_bets(yesterday: str) -> pd.DataFrame:
 
     graded_rows = []
     for _, row in picks_df.iterrows():
-        grading = _grade_row(row, espn_results)
+        grading = _grade_pick(row, espn_results)
         if grading is None:
-            print(f"  [skip] No match: {row.get('MATCHUP', '?')}  {row.get('BET_SIGNAL','?')[:50]}")
+            print(f"  [skip] No match: {row.get('MATCHUP','?')}  "
+                  f"{str(row.get('BET_SIGNAL',''))[:50]}")
             continue
+
+        icon = "✓" if grading["RESULT"] == "WIN" else \
+               ("~" if grading["RESULT"] == "PUSH" else "✗")
+        print(f"  {icon} {grading['RESULT']:4s}  {grading['PNL']:+.3f}u  "
+              f"{row.get('MATCHUP','?')}  {str(row.get('BET_SIGNAL',''))[:45]}")
 
         graded_rows.append({
             "DATE":       yesterday,
             "MATCHUP":    row.get("MATCHUP", ""),
-            # BET field must match regex r'\(([A-Z]+)\s' for team tracker
             "BET":        str(row.get("BET_SIGNAL", "")),
             "RESULT":     grading["RESULT"],
             "PNL":        grading["PNL"],
@@ -419,13 +400,9 @@ def grade_yesterdays_bets(yesterday: str) -> pd.DataFrame:
             "GRADED_AT":  grading["GRADED_AT"],
         })
 
-        icon = "✓" if grading["RESULT"] == "WIN" else ("~" if grading["RESULT"] == "PUSH" else "✗")
-        print(f"  {icon} {grading['RESULT']:4s}  {grading['PNL']:+.2f}u  "
-              f"{row.get('MATCHUP','?')}  [{str(row.get('BET_SIGNAL',''))[:40]}]")
-
     if not graded_rows:
-        print("  No bets could be graded.")
-    return pd.DataFrame(graded_rows) if graded_rows else pd.DataFrame()
+        print("  Nothing graded.")
+    return pd.DataFrame(graded_rows)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -433,29 +410,24 @@ def grade_yesterdays_bets(yesterday: str) -> pd.DataFrame:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def append_results(graded_df: pd.DataFrame, yesterday: str):
-    """
-    Merge newly-graded rows into bet_results.csv (local + GPP mirror).
-    Deduplicates by DATE + MATCHUP + BET to prevent double-counting on re-runs.
-    Replaces any pending rows for yesterday with the now-graded versions.
-    """
+    """Merge newly-graded rows into both bet_results.csv locations."""
     if graded_df.empty:
         return
 
     dedup_keys = ["DATE", "MATCHUP", "BET"]
 
-    for results_path in [
-        os.path.join(RESULTS_DIR, "bet_results.csv"),
-        GPP_MLB_RESULTS_FILE,
-    ]:
-        Path(os.path.dirname(results_path)).mkdir(parents=True, exist_ok=True)
+    for results_path in [MLB_RESULTS_CSV, LOCAL_RESULTS_CSV]:
+        results_path.parent.mkdir(parents=True, exist_ok=True)
 
-        if os.path.exists(results_path):
+        if results_path.exists():
             existing = pd.read_csv(results_path)
-            # Remove any pending/ungraded rows for yesterday so they get replaced
+            # Remove any ungraded rows from yesterday (allow re-grading)
             is_yesterday = existing.get("DATE", pd.Series(dtype=str)) == yesterday
-            is_ungraded  = ~existing.get("RESULT", pd.Series(dtype=str)).isin(["WIN", "LOSS", "PUSH"])
+            is_ungraded  = ~existing.get("RESULT", pd.Series(dtype=str)).isin(
+                ["WIN", "LOSS", "PUSH"]
+            )
             existing = existing[~(is_yesterday & is_ungraded)]
-            # Deduplicate: don't add rows whose key already exists
+            # Deduplicate
             ex_keys  = existing[dedup_keys].apply(tuple, axis=1)
             new_keys = graded_df[dedup_keys].apply(tuple, axis=1)
             new_only = graded_df[~new_keys.isin(ex_keys)]
@@ -464,31 +436,29 @@ def append_results(graded_df: pd.DataFrame, yesterday: str):
             combined = graded_df.copy()
 
         combined.to_csv(results_path, index=False)
-        wins      = (combined["RESULT"] == "WIN").sum()
-        losses    = (combined["RESULT"] == "LOSS").sum()
-        total_pnl = combined["PNL"].sum()
+        wins  = (combined["RESULT"] == "WIN").sum()
+        losses= (combined["RESULT"] == "LOSS").sum()
+        pnl   = combined["PNL"].sum()
         print(f"  Results → {results_path}")
-        print(f"    Record: {wins}W-{losses}L  |  Season P&L: {total_pnl:+.2f}u  "
-              f"({len(combined)} graded bets total)")
+        print(f"    {wins}W-{losses}L  |  Season P&L: {pnl:+.2f}u  "
+              f"({len(combined)} graded bets)")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 4. TRIGGER PAGE REBUILD
+# 4. REBUILD PAGE + GIT PUSH
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def trigger_page_rebuild():
-    """Dynamically import and call generate_picks_page.main()."""
-    if not os.path.exists(GPP_PATH):
-        print(f"  [warn] generate_picks_page.py not found:")
-        print(f"    {GPP_PATH}")
-        print("  Page rebuild skipped — ensure the NBA Model Files folder is set up.")
+def trigger_page_rebuild() -> bool:
+    if not GPP_PATH.exists():
+        print(f"  [warn] generate_picks_page.py not found at {GPP_PATH}")
+        print("  Page rebuild skipped.")
         return False
     try:
         spec = importlib.util.spec_from_file_location("generate_picks_page", GPP_PATH)
         mod  = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         mod.main()
-        print("  Page rebuilt and pushed to GitHub → ktobttv.github.io")
+        print("  Page rebuilt + pushed → ktobttv.github.io (live in ~60s)")
         return True
     except Exception as e:
         print(f"  [warn] Page rebuild failed: {e}")
@@ -499,48 +469,51 @@ def trigger_page_rebuild():
 # MAIN
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def main(grade_only: bool = False):
-    print("\n── MLB Page Generator ──")
+def main(grade_only: bool = False, no_push: bool = False):
+    print("\n── MLB Page Generator ──────────────────────────────────")
 
     today     = date.today().isoformat()
     yesterday = (date.today() - timedelta(days=1)).isoformat()
 
-    # ── Step 1: Write today's picks ───────────────────────────────────────────
+    # ── Step 1: Write today's picks CSV ──────────────────────────────────────
     if not grade_only:
-        if not os.path.exists(PICKS_JSON):
-            print(f"  [warn] picks_today.json not found at:\n    {PICKS_JSON}")
-            print("  Run: python run_model.py")
+        if not PICKS_JSON.exists():
+            print(f"  [warn] picks_today.json not found at {PICKS_JSON}")
+            print("  Run: python run_today.py")
         else:
             with open(PICKS_JSON) as f:
                 data = json.load(f)
-            games     = data.get("games", [])
-            date_str  = data.get("date", today)
-            total_p   = data.get("total_picks", 0)
-            generated = data.get("generated_at", "")
-            print(f"  {total_p} picks for {date_str}  (generated {generated[:16]})")
+            games    = data.get("games", [])
+            date_str = data.get("date", today)
+            n_picks  = data.get("total_picks", 0)
+            gen_at   = data.get("generated_at", "")[:16]
+            print(f"  {n_picks} picks for {date_str}  (generated {gen_at})")
             write_picks_csv(games, date_str)
 
-    # ── Step 2: Grade yesterday's bets ───────────────────────────────────────
+    # ── Step 2: Grade yesterday ───────────────────────────────────────────────
     print(f"\n  Grading bets for {yesterday}...")
     graded_df = grade_yesterdays_bets(yesterday)
 
-    # ── Step 3: Append to results CSV ─────────────────────────────────────────
+    # ── Step 3: Append results ────────────────────────────────────────────────
     if not graded_df.empty:
-        print(f"\n  Writing {len(graded_df)} graded bets to results CSV...")
+        print(f"\n  Writing {len(graded_df)} graded bets...")
         append_results(graded_df, yesterday)
     else:
-        print("  Nothing new to append to results.")
+        print("  Nothing new to append.")
 
-    # ── Step 4: Rebuild the picks page ───────────────────────────────────────
-    print("\n  Triggering page rebuild...")
-    trigger_page_rebuild()
+    # ── Step 4: Rebuild page ──────────────────────────────────────────────────
+    if not no_push:
+        print("\n  Rebuilding picks page...")
+        trigger_page_rebuild()
 
-    print("── MLB Page Generator done ──\n")
+    print("── MLB Page Generator done ──────────────────────────────\n")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="MLB picks page generator")
     parser.add_argument("--grade-only", action="store_true",
-                        help="Skip picks CSV step — only grade yesterday + push")
+                        help="Skip picks CSV step — only grade + push")
+    parser.add_argument("--no-push",   action="store_true",
+                        help="Write files but skip the git push")
     args = parser.parse_args()
-    main(grade_only=args.grade_only)
+    main(grade_only=args.grade_only, no_push=args.no_push)

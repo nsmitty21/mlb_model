@@ -37,8 +37,13 @@ MIN_MODEL_PROB = 0.15
 
 
 def _units(edge: float) -> int:
+    # Only fire on POSITIVE edges. abs() was previously used here, which caused
+    # negative-edge picks to trigger (e.g. Edge:-27.7% producing a 3U pick).
+    # A negative edge means the model thinks the book has the right side — skip.
+    if edge <= 0:
+        return 0
     for threshold, u in EDGE_THRESHOLDS:
-        if abs(edge) >= threshold:
+        if edge >= threshold:
             return u
     return 0
 
@@ -192,8 +197,16 @@ def predict_game(feature_dict: dict,
                       else (dk_ml_home if book == "draftkings" else fd_ml_home)
                 b1 = _american_to_prob(odds)
                 b2 = _american_to_prob(opp) if opp else 0.5
-                fh, fa = _remove_vig(b1, b2)
-                fp    = fh if side == "home" else fa
+                # BUG A FIX: b1 is always the bet side's own odds (home or away),
+                # b2 is always the opponent's. _remove_vig(b1, b2) returns
+                # (bet_side_nv, opponent_nv). fp must always be fh (the first
+                # return = the bet team's own no-vig prob), never fa.
+                # The old code used fa for away picks, which returned the
+                # *opponent's* prob — generating massive fake edges on all
+                # away favorites (e.g. TBR -464 away showed book_prob=22.7%
+                # instead of 78.7%, producing a fraudulent 42pp "edge").
+                bet_nv, _ = _remove_vig(b1, b2)
+                fp    = bet_nv
                 edge  = mp - fp
                 units = _units(edge)
                 if units > 0:
@@ -231,8 +244,10 @@ def predict_game(feature_dict: dict,
                     continue
                 b1 = _american_to_prob(odds)
                 b2 = _american_to_prob(opp_j) if opp_j else 0.5
-                fh, fa = _remove_vig(b1, b2)
-                fp    = fh if side == "home" else fa
+                # BUG A FIX: same as ML — b1 is always the bet side's juice,
+                # b2 is the opponent's. Use first return value only.
+                bet_nv, _ = _remove_vig(b1, b2)
+                fp    = bet_nv
                 edge  = mp - fp
                 units = _units(edge)
                 if units > 0:
