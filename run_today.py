@@ -80,86 +80,93 @@ def _load_live_team_stats(year: int) -> tuple[dict, dict]:
     Returns (bat_lookup, pit_lookup) keyed by both (full_team_name, season)
     and (abbr, season) so build_inference_row() can look up either form.
 
-    Search order for each parquet:
-      1. data/live/team_{batting|pitching}.parquet   — written by fetch_live_season_stats
-      2. data/historical/team_{batting|pitching}.parquet — written by fetch_historical main()
+    Strategy (season-start aware):
+      1. Always load data/historical/team_{batting|pitching}.parquet first.
+         This has full-season 2025 stats for every team and is indexed under
+         (team, 2025) — used as the year-1 fallback automatically.
+      2. Then load data/live/team_{batting|pitching}.parquet and overlay any
+         teams that have played >= MIN_GAMES_CURRENT games this season.
+         Teams below that threshold keep their prior-year stats.
 
-    When the parquet contains multiple seasons (e.g. 2021–2025 in historical/),
-    we always use the most recent season's rows so inference uses the freshest stats.
-
-    pybaseball stores teams as 3-letter abbreviations ('ATL').  We index under
-    both the abbreviation and the full name so lookups always succeed regardless
-    of which form the caller provides.
+    This means for the first ~2 weeks of the season every team uses 2025
+    full-season stats rather than a 3-game sample, which the model was never
+    trained on (it learned on full-season averages).
     """
-    def _candidates(filename):
-        return [
-            DATA_DIR / "live"       / filename,
-            DATA_DIR / "historical" / filename,
-        ]
-
     ABB_TO_FULL = {v: k for k, v in FULL_NAME_TO_ABB.items()}
     bat, pit = {}, {}
+    # Batting stats need more games to stabilise (OPS, wOBA require ~30+ PA).
+    # Pitching ERA/FIP are meaningful after just 4–5 starts (~25–30 IP), so
+    # use a lower threshold to pick up early-season changes (new team, injury
+    # return, velocity change) before the market fully prices them in.
+    MIN_GAMES_BATTING  = 15
+    MIN_GAMES_PITCHING = 5
 
     for filename, lookup, label in [
         ("team_batting.parquet",  bat, "batting"),
         ("team_pitching.parquet", pit, "pitching"),
     ]:
-        path = next((p for p in _candidates(filename) if p.exists()), None)
-        if path is None:
+        min_games = MIN_GAMES_BATTING if label == "batting" else MIN_GAMES_PITCHING
+        # ── Step 1: load historical (prior seasons) as fallback baseline ──
+        hist_path = DATA_DIR / "historical" / filename
+        hist_loaded = 0
+        if hist_path.exists():
+            df_hist = pd.read_parquet(hist_path)
+            if "team" in df_hist.columns:
+                # If multiple seasons present, index each under its own year
+                # so the year-1 fallback in build_inference_row() works.
+                if "season" in df_hist.columns:
+                    for _, row in df_hist.iterrows():
+                        abbr      = str(row["team"]).strip().upper()
+                        full_name = ABB_TO_FULL.get(abbr, abbr)
+                        yr        = int(row["season"])
+                        lookup[(full_name, yr)] = row.to_dict()
+                        lookup[(abbr,      yr)] = row.to_dict()
+                        hist_loaded += 1
+                else:
+                    for _, row in df_hist.iterrows():
+                        abbr      = str(row["team"]).strip().upper()
+                        full_name = ABB_TO_FULL.get(abbr, abbr)
+                        lookup[(full_name, year - 1)] = row.to_dict()
+                        lookup[(abbr,      year - 1)] = row.to_dict()
+                        hist_loaded += 1
+
+        # ── Step 2: overlay live current-season stats for teams with enough games ──
+        live_path = DATA_DIR / "live" / filename
+        live_loaded = 0
+        live_skipped = 0
+        if live_path.exists():
+            df_live = pd.read_parquet(live_path)
+            if "team" in df_live.columns:
+                if "season" in df_live.columns:
+                    latest = int(df_live["season"].max())
+                    df_live = df_live[df_live["season"] == latest].copy()
+
+                for _, row in df_live.iterrows():
+                    abbr         = str(row["team"]).strip().upper()
+                    full_name    = ABB_TO_FULL.get(abbr, abbr)
+                    games_played = float(row.get("G", 0) or 0)
+
+                    if games_played < min_games:
+                        live_skipped += 1
+                        continue  # too early — keep prior-year fallback
+
+                    lookup[(full_name, year)] = row.to_dict()
+                    lookup[(abbr,      year)] = row.to_dict()
+                    live_loaded += 1
+
+        # ── Reporting ─────────────────────────────────────────────────────
+        if live_loaded > 0:
+            print(f"  {label.capitalize()} stats: {live_loaded} teams from "
+                  f"live/{filename} (season {year})"
+                  + (f" + {live_skipped} teams using prior-year fallback"
+                     if live_skipped else ""))
+        elif hist_loaded > 0:
+            prior = year - 1
+            print(f"  {label.capitalize()} stats: 0 teams with {min_games}+ "
+                  f"games in {year} — using {prior} full-season stats for all teams")
+        else:
             print(f"  [WARN] {filename} not found in data/live/ or data/historical/ — "
                   "run fetch_historical.py")
-            continue
-
-        df = pd.read_parquet(path)
-        if "team" not in df.columns:
-            print(f"  [WARN] {filename} has no 'team' column — skipping")
-            continue
-
-        # If the parquet covers multiple seasons, use the most recent one.
-        # historical/team_batting.parquet has 2021–2025 (150 rows total = 30×5).
-        # We want the 2025 rows (or the single-season live/ file).
-        if "season" in df.columns:
-            latest_season = int(df["season"].max())
-            df = df[df["season"] == latest_season].copy()
-            effective_year = latest_season
-        else:
-            effective_year = year
-
-        is_batting  = label == "batting"
-        is_pitching = label == "pitching"
-        loaded = 0
-
-        for _, row in df.iterrows():
-            abbr      = str(row["team"]).strip().upper()
-            full_name = ABB_TO_FULL.get(abbr, abbr)
-
-            # BUG B FIX: The old threshold (G < 5 AND extreme values) let
-            # early-season noise through. Baltimore OPS=0.464 and Cincinnati
-            # OPS=0.388 passed because they're between 0.250 and 1.200, even
-            # though they're meaningless 3-game samples. The model was trained
-            # on full-season stats (April-Sept averages), so feeding it tiny
-            # samples produces garbage predictions.
-            #
-            # New approach: require MIN_GAMES_CURRENT before trusting current
-            # season stats. Below that, use prior-year stats as fallback
-            # (stored separately and indexed under year-1). This means the
-            # first 2 weeks of the season use last year's team stats, which
-            # is far more accurate than a 3-game sample.
-            MIN_GAMES_CURRENT = 15
-            games_played = float(row.get("G", 0) or 0)
-            if games_played < MIN_GAMES_CURRENT:
-                continue   # too early — caller falls back to year-1 stats
-
-            lookup[(full_name,  year)] = row.to_dict()
-            lookup[(abbr,       year)] = row.to_dict()
-            # Also index under the effective_year so year-1 fallbacks work
-            lookup[(full_name,  effective_year)] = row.to_dict()
-            lookup[(abbr,       effective_year)] = row.to_dict()
-            loaded += 1
-
-        src = "live/" if "live" in str(path) else "historical/"
-        print(f"  {label.capitalize()} stats: {loaded} teams from {src}{filename} "
-              f"(season {effective_year})")
 
     return bat, pit
 
@@ -247,7 +254,7 @@ def _compute_bvp_features(pitcher_name: str, lineup: list,
 
     sub_idx = sub.set_index(sub["batter"].apply(_norm))
     totals  = {"PA": 0, "AB": 0, "H": 0, "HR": 0, "BB": 0,
-               "K": 0, "SF": 0, "HBP": 0}
+               "K": 0, "SF": 0, "HBP": 0, "2B": 0, "3B": 0}
     found   = 0
 
     for batter in lineup:
@@ -271,10 +278,13 @@ def _compute_bvp_features(pitcher_name: str, lineup: list,
     ab  = totals["AB"] if totals["AB"] > 0 else pa
     h, bb, hbp, sf, hr = (totals["H"], totals["BB"], totals["HBP"],
                            totals["SF"], totals["HR"])
-    singles = max(h - hr, 0)
+    doubles, triples = totals["2B"], totals["3B"]
+    # BUG FIX: previously singles + 4*hr — doubles and triples were excluded,
+    # causing gap hitters to have the same SLG as singles hitters in BvP data.
+    singles = max(h - doubles - triples - hr, 0)
     obp_den = ab + bb + hbp + sf
     obp = (h + bb + hbp) / obp_den if obp_den > 0 else np.nan
-    slg = (singles + 4 * hr) / ab   if ab > 0      else np.nan
+    slg = (singles + 2 * doubles + 3 * triples + 4 * hr) / ab if ab > 0 else np.nan
     ops = round(obp + slg, 3) if (pd.notna(obp) and pd.notna(slg)) else np.nan
 
     return {
@@ -421,6 +431,11 @@ _OUT_STATUSES = {
     "Out", "Doubtful", "IR", "IL",
     "10-Day IL", "15-Day IL", "60-Day IL", "Suspended",
 }
+# Questionable players have ~50% chance of missing the game — weight at 40%
+# of their position value so the nudge reflects real uncertainty rather than
+# ignoring them entirely (as was the case before this fix).
+_QUESTIONABLE_STATUSES = {"Questionable"}
+_QUESTIONABLE_WEIGHT   = 0.40
 
 
 def _fetch_injury_report(team_abbr: str) -> list[dict]:
@@ -454,8 +469,12 @@ def compute_injury_adjustment(home_abbr: str, away_abbr: str) -> float:
     def _severity(injuries: list[dict]) -> float:
         total = 0.0
         for inj in injuries:
+            pos_weight = _POSITION_WEIGHTS.get(inj["position"], 0.003)
             if inj["status"] in _OUT_STATUSES:
-                total += _POSITION_WEIGHTS.get(inj["position"], 0.003)
+                total += pos_weight
+            elif inj["status"] in _QUESTIONABLE_STATUSES:
+                # ~50% game-time decision → apply fractional weight
+                total += pos_weight * _QUESTIONABLE_WEIGHT
         return min(total, MAX_INJURY_ADJUSTMENT)
 
     home_hit = _severity(_fetch_injury_report(home_abbr))
@@ -667,21 +686,44 @@ def run(target_date: str | None = None, skip_injuries: bool = False):
     # Checks that full team names from today_lines.json resolve to real stats.
     # If OPS shows MISSING the ABB_TO_FULL map has a gap for that team.
     print()
-    _diag_teams = sorted(set(games["home_team"].tolist() + games["away_team"].tolist()))
+    _diag_teams  = sorted(set(games["home_team"].tolist() + games["away_team"].tolist()))
     _any_missing = False
+    _missing_teams = []
+    _fallback_teams = []
     for _t in _diag_teams:
-        _brow = bat_lookup.get((_t, year), bat_lookup.get((_t, year - 1), {}))
-        _prow = pit_lookup.get((_t, year), pit_lookup.get((_t, year - 1), {}))
-        _ops  = _brow.get("OPS",  "MISSING")
-        _era  = _prow.get("ERA",  "MISSING")
-        _status = "OK" if _ops != "MISSING" else "NO STATS"
-        if _ops == "MISSING":
+        _brow_cur  = bat_lookup.get((_t, year), {})
+        _brow_prev = bat_lookup.get((_t, year - 1), {})
+        _prow_cur  = pit_lookup.get((_t, year), {})
+        _prow_prev = pit_lookup.get((_t, year - 1), {})
+
+        _using_cur  = bool(_brow_cur)
+        _using_prev = bool(_brow_prev) and not _using_cur
+        _brow = _brow_cur or _brow_prev
+        _prow = _prow_cur or pit_lookup.get((_t, year - 1), {})
+
+        _ops = _brow.get("OPS", None)
+        _era = _prow.get("ERA", None)
+
+        if not _brow and not _prow:
             _any_missing = True
-        print(f"  [LOOKUP] {_t:<30} OPS={str(_ops):<8}  ERA={str(_era):<6}  {_status}")
-    if _any_missing:
-        print("  [WARN] Teams with NO STATS will produce garbage model predictions.")
+            _missing_teams.append(_t)
+        elif _using_prev:
+            _fallback_teams.append(_t)
+
+    if _missing_teams:
+        print(f"  [WARN] No stats found for: {', '.join(_missing_teams)}")
+        print(f"         These games will be hard-skipped. Run fetch_historical.py to populate.")
+    if _fallback_teams:
+        print(f"  [INFO] Using {year-1} full-season stats for {len(_fallback_teams)} teams "
+              f"(< 15 games in {year}): {', '.join(_fallback_teams)}")
+    if not _any_missing and not _fallback_teams:
+        print(f"  [OK] All {len(_diag_teams)} teams have {year} stats.")
+    # Build a hard-exclusion set so no pick is ever generated for a game
+    # where either team has completely missing stats. Previously _has_usable_data()
+    # could pass (50% threshold) even when the bet team itself had zero data,
+    # because BvP / Pinnacle columns filled the non-null count above 50%.
+    _no_stats_teams: set[str] = set(_missing_teams)
     print()
-    # ── End lookup diagnostic ─────────────────────────────────────────────
 
     bvp_df        = _load_bvp_data()
     lineup_lookup = _load_lineup_lookup()
@@ -697,6 +739,16 @@ def run(target_date: str | None = None, skip_injuries: bool = False):
         at  = str(game.get("away_team", ""))
         hsp = str(game.get("home_sp",   ""))
         asp = str(game.get("away_sp",   ""))
+
+        # Hard-skip: if either team has no stats at all, skip before building
+        # features. _has_usable_data() alone is not sufficient — BvP / Pinnacle
+        # neutral fills can push non-null fraction above 50% even when all
+        # batting and pitching features for the missing team are NaN.
+        if ht in _no_stats_teams or at in _no_stats_teams:
+            print(f"  [SKIP] {at} @ {ht} — no stats for "
+                  f"{', '.join(t for t in (ht, at) if t in _no_stats_teams)}")
+            skipped += 1
+            continue
 
         pinnacle_ctx = {
             "pi_close_no_vig_home": game.get("_pi_close_no_vig_home"),

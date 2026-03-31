@@ -1,5 +1,5 @@
 {
-  "trained_at": "2026-03-29T02:15:32.318349",
+  "trained_at": "2026-03-29T22:23:38.848817",
   "training_years": [
     2021,
     2022,
@@ -106,20 +106,20 @@
   "avg_total": 8.91,
   "model_metrics": {
     "ML": {
-      "auc": 0.6181,
-      "auc_std": 0.0156,
+      "auc": 0.6149,
+      "auc_std": 0.0172,
       "pos_rate": 0.5314,
       "n": 12148
     },
     "Spread/RL": {
-      "auc": 0.6149,
-      "auc_std": 0.0159,
+      "auc": 0.614,
+      "auc_std": 0.0149,
       "pos_rate": 0.3589,
       "n": 12148
     },
     "Total": {
-      "auc": 0.5492,
-      "auc_std": 0.0141,
+      "auc": 0.5498,
+      "auc_std": 0.014,
       "pos_rate": 0.4687,
       "n": 12148
     }
