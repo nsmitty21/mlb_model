@@ -297,6 +297,9 @@ def _make_pipeline(**xgb_kwargs) -> Pipeline:
     ])
 
 
+from model import _CalibratedPipeline  # canonical definition lives in model.py
+
+
 XGB_PARAMS = dict(
     n_estimators     = 400,
     max_depth        = 4,
@@ -310,10 +313,17 @@ XGB_PARAMS = dict(
 )
 
 
-def _report_pi_importance(pipeline: Pipeline, label: str):
-    """Log the share of total importance held by Pinnacle features."""
+def _report_pi_importance(pipeline, label: str):
+    """Log the share of total importance held by Pinnacle features.
+
+    Works with both a raw Pipeline and a CalibratedClassifierCV-wrapped Pipeline.
+    CalibratedClassifierCV stores the base estimator as .estimator, so we unwrap
+    one level if necessary before accessing named_steps["clf"].
+    """
     try:
-        clf = pipeline.named_steps["clf"]
+        # Unwrap CalibratedClassifierCV if present
+        inner = getattr(pipeline, "estimator", pipeline)
+        clf = inner.named_steps["clf"]
         fi  = clf.feature_importances_
         pi_idxs = [FEATURE_COLS.index(c) for c in PINNACLE_FEATURE_COLS
                    if c in FEATURE_COLS]
@@ -385,24 +395,53 @@ def train(years: list[int] | None = None) -> dict:
         print(f"  Positive rate: {pos_rate:.3f}  |  n={len(y):,}")
 
         pipe = _make_pipeline(**XGB_PARAMS)
-        pipe.fit(X, y)
 
+        # AUC cross-val on the raw pipeline (before calibration) for diagnostics.
+        # CalibratedClassifierCV with cv='prefit' requires a pre-fitted estimator,
+        # so we score the uncalibrated pipe first, then fit on the full dataset,
+        # then wrap for probability calibration.
         scores = cross_val_score(pipe, X, y, cv=tscv, scoring="roc_auc")
         auc_mean, auc_std = scores.mean(), scores.std()
         print(f"  AUC: {auc_mean:.4f} ± {auc_std:.4f}")
-        _report_pi_importance(pipe, label)
+
+        # Fit on full dataset, then calibrate using a 20% held-out split.
+        # isotonic is preferred over sigmoid (Platt) for n > 1000 and non-monotone
+        # distortion — both apply here (gradient boosting on 10k+ games).
+        #
+        # NOTE: cv='prefit' was removed in scikit-learn 1.2+. We replicate it
+        # manually: fit the pipeline on 80%, use the 20% holdout to fit an
+        # IsotonicRegression that maps raw proba -> true frequency, then wrap
+        # both in a lightweight CalibrationWrapper that predict_proba() delegates
+        # to. This is exactly what CalibratedClassifierCV(cv='prefit') did.
+        from sklearn.model_selection import train_test_split
+        from sklearn.isotonic import IsotonicRegression
+
+        X_fit, X_cal, y_fit, y_cal = train_test_split(
+            X, y, test_size=0.20, shuffle=False, random_state=42
+        )
+        pipe.fit(X_fit, y_fit)
+        raw_cal_probs = pipe.predict_proba(X_cal)[:, 1]
+        iso = IsotonicRegression(out_of_bounds="clip")
+        iso.fit(raw_cal_probs, y_cal)
+
+        calibrated = _CalibratedPipeline(pipe, iso)
+        print(f"  Calibrated (isotonic, 20% hold-out, n_cal={len(y_cal):,})")
+        _report_pi_importance(pipe, label)   # report on inner pipe (has feature_importances_)
 
         # FIX 1: save to the exact paths load_models() expects
-        joblib.dump(pipe, pkl_path)
+        joblib.dump(calibrated, pkl_path)
         print(f"  Saved → {pkl_path}")
 
-        pipelines[label] = pipe
+        pipelines[label] = calibrated
         metrics[label]   = {"auc": round(auc_mean, 4), "auc_std": round(auc_std, 4),
                              "pos_rate": round(float(pos_rate), 4), "n": int(len(y))}
 
     # FIX 4: meta.json includes the feature list so model.py can verify alignment
     meta = {
         "trained_at":          pd.Timestamp.now().isoformat(),
+        "calibrated":          True,          # CalibratedClassifierCV(method='isotonic')
+        "calibration_method":  "isotonic",
+        "calibration_holdout": 0.20,
         "training_years":      years or list(range(df["season"].min(),
                                                    df["season"].max() + 1))
                                if "season" in df.columns else [],

@@ -93,6 +93,11 @@ def _load_live_team_stats(year: int) -> tuple[dict, dict]:
     trained on (it learned on full-season averages).
     """
     ABB_TO_FULL = {v: k for k, v in FULL_NAME_TO_ABB.items()}
+    # pybaseball 2026 uses "ATH" for the Sacramento Athletics.
+    # Neither ATH nor OAK auto-maps to "Athletics" (the name in
+    # today_lines.json) without these explicit overrides.
+    ABB_TO_FULL["ATH"] = "Athletics"
+    ABB_TO_FULL["OAK"] = "Athletics"
     bat, pit = {}, {}
     # Batting stats need more games to stabilise (OPS, wOBA require ~30+ PA).
     # Pitching ERA/FIP are meaningful after just 4–5 starts (~25–30 IP), so
@@ -848,6 +853,15 @@ def run(target_date: str | None = None, skip_injuries: bool = False):
     with open(PICKS_FILE, "w") as f:
         json.dump(out, f, indent=2)
     print(f"\nSaved {len(all_picks)} picks → {PICKS_FILE}")
+
+    # ── Auto-generate X thread writeup ───────────────────────────────────────
+    try:
+        from generate_mlb_writeups import generate as _gen_writeup
+        print("\n── Generating X thread writeup ─────────────────────────")
+        _gen_writeup(out)   # pass already-built dict to avoid re-reading file
+    except Exception as e:
+        print(f"  [warn] Writeup generation failed: {e}")
+
     print("Run next: python generate_mlb_page.py")
 
 

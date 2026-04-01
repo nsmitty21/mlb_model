@@ -14,9 +14,51 @@ predict_game() changes
     by run_today.py from the ESPN injury API. Applied to home_win_prob BEFORE
     comparing to book probability. Does not affect the spread/total models
     since those use symmetric cover probabilities.
+
+Calibration (train_model.py ≥ this version)
+---------------------------------------------
+  Models are saved as CalibratedClassifierCV(pipeline, cv='prefit',
+  method='isotonic') wrappers.  predict_proba() works identically — the
+  wrapper is transparent at inference time.  Calibrated models produce
+  probabilities that track real-world frequencies, so the MODEL_PROB_BOUNDS
+  below function as a data-error guard rather than an overconfidence filter.
 """
 import json, numpy as np, pandas as pd, joblib
 from pathlib import Path
+
+class _CalibratedPipeline:
+    """Pipeline + isotonic calibrator, serializable by joblib/pickle.
+
+    Defined here (model.py) so that both train_model.py and run_today.py
+    resolve the class at the same import path — 'model._CalibratedPipeline'.
+    Pickle stores that path in the .pkl; any script that does
+    'from model import ...' or 'import model' will find it correctly.
+    """
+    def __init__(self, pipeline, calibrator):
+        # Use object.__setattr__ so __setattr__ doesn't trigger __getattr__
+        object.__setattr__(self, '_pipe', pipeline)
+        object.__setattr__(self, '_iso', calibrator)
+
+    def predict_proba(self, X):
+        import numpy as _np
+        raw = self._pipe.predict_proba(X)[:, 1]
+        cal = self._iso.predict(raw)
+        return _np.column_stack([1 - cal, cal])
+
+    # Explicit pickle support — avoids __getattr__ being called before
+    # _pipe/_iso are restored, which causes infinite recursion.
+    def __getstate__(self):
+        return {'_pipe': self._pipe, '_iso': self._iso}
+
+    def __setstate__(self, state):
+        object.__setattr__(self, '_pipe', state['_pipe'])
+        object.__setattr__(self, '_iso', state['_iso'])
+
+    def __getattr__(self, name):
+        # Only reached for attributes not on _CalibratedPipeline itself.
+        # _pipe is always set via object.__setattr__ so this won't recurse.
+        return getattr(object.__getattribute__(self, '_pipe'), name)
+
 
 MODEL_DIR = Path("models")
 MODEL_DIR.mkdir(exist_ok=True)
@@ -30,8 +72,20 @@ META_JSON  = MODEL_DIR / "meta.json"
 # from meta.json so they stay in sync with whatever train_model.py used.
 EDGE_THRESHOLDS = [(0.15, 3), (0.10, 2), (0.07, 1)]
 
-# Sanity bounds: model_prob outside this range almost certainly means
-# the feature row is all-NaN (fillna(-999) artifact). Skip the game.
+# Per-market model_prob bounds, calibrated to each model's AUC.
+# After retraining with CalibratedClassifierCV these bounds act as a safety
+# net for degenerate inputs (e.g. all-NaN features producing garbage probs)
+# rather than the primary overconfidence filter.  Before calibration they were
+# the main guard against XGBoost's tendency to push uncalibrated probs toward
+# extremes; after calibration the probs should naturally cluster near 50% for
+# a weak model, so extreme values that slip through genuinely do indicate an
+# all-NaN / data-error condition.
+MODEL_PROB_BOUNDS = {
+    "ML":    (0.30, 0.70),   # AUC 0.618 — ±20pp from 50%
+    "RL":    (0.35, 0.65),   # AUC 0.615 — ±15pp from 50%
+    "Total": (0.42, 0.58),   # AUC 0.551 — ±8pp from 50% (near-random model)
+}
+# Legacy flat bounds kept for the all-NaN artifact guard in ML only
 MAX_MODEL_PROB = 0.85
 MIN_MODEL_PROB = 0.15
 
@@ -176,10 +230,15 @@ def predict_game(feature_dict: dict,
     if ml_model:
         raw_hp = ml_model.predict_proba(X)[0][1]
 
+        lo, hi = MODEL_PROB_BOUNDS["ML"]
         if raw_hp < MIN_MODEL_PROB or raw_hp > MAX_MODEL_PROB:
             print(f"  [SKIP ML] {away_team}@{home_team} — "
                   f"model_prob={raw_hp:.3f} out of [{MIN_MODEL_PROB},{MAX_MODEL_PROB}] "
                   f"(likely all-NaN features)")
+        elif raw_hp < lo or raw_hp > hi:
+            print(f"  [SKIP ML] {away_team}@{home_team} — "
+                  f"model_prob={raw_hp:.3f} outside ML bounds [{lo},{hi}] "
+                  f"(overconfident for AUC=0.618)")
         else:
             # Apply injury nudge to home win probability
             hp = float(np.clip(raw_hp + injury_adj, 0.05, 0.95))
@@ -227,9 +286,14 @@ def predict_game(feature_dict: dict,
     if spread_model:
         cp = spread_model.predict_proba(X)[0][1]
 
+        lo, hi = MODEL_PROB_BOUNDS["RL"]
         if cp < MIN_MODEL_PROB or cp > MAX_MODEL_PROB:
             print(f"  [SKIP RL] {away_team}@{home_team} — "
-                  f"cover_prob={cp:.3f} out of range")
+                  f"cover_prob={cp:.3f} out of range (all-NaN features)")
+        elif cp < lo or cp > hi:
+            print(f"  [SKIP RL] {away_team}@{home_team} — "
+                  f"cover_prob={cp:.3f} outside RL bounds [{lo},{hi}] "
+                  f"(overconfident for AUC=0.615)")
         else:
             for side, mp, j1, j2, opp_j, spread_line, team_label in [
                 ("home", cp,   fd_spread_juice_home, dk_spread_juice_home,
@@ -271,9 +335,14 @@ def predict_game(feature_dict: dict,
     if total_model:
         op = total_model.predict_proba(X)[0][1]
 
+        lo, hi = MODEL_PROB_BOUNDS["Total"]
         if op < MIN_MODEL_PROB or op > MAX_MODEL_PROB:
             print(f"  [SKIP TOT] {away_team}@{home_team} — "
-                  f"over_prob={op:.3f} out of range")
+                  f"over_prob={op:.3f} out of range (all-NaN features)")
+        elif op < lo or op > hi:
+            print(f"  [SKIP TOT] {away_team}@{home_team} — "
+                  f"over_prob={op:.3f} outside Total bounds [{lo},{hi}] "
+                  f"(overconfident for AUC=0.551)")
         else:
             total_line = fd_total or dk_total
             if total_line is not None and total_line < 5.0:

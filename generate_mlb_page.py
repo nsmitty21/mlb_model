@@ -475,7 +475,7 @@ def main(grade_only: bool = False, no_push: bool = False):
     today     = date.today().isoformat()
     yesterday = (date.today() - timedelta(days=1)).isoformat()
 
-    # ── Step 1: Write today's picks CSV ──────────────────────────────────────
+    # ── Step 1: Write today's picks CSV + X thread writeup ───────────────────
     if not grade_only:
         if not PICKS_JSON.exists():
             print(f"  [warn] picks_today.json not found at {PICKS_JSON}")
@@ -489,6 +489,20 @@ def main(grade_only: bool = False, no_push: bool = False):
             gen_at   = data.get("generated_at", "")[:16]
             print(f"  {n_picks} picks for {date_str}  (generated {gen_at})")
             write_picks_csv(games, date_str)
+
+            # Generate X thread writeup (skip if run_today already did it)
+            try:
+                from generate_mlb_writeups import generate as _gen_writeup
+                from pathlib import Path as _Path
+                from config import BASE_DIR as _BASE_DIR
+                _wd = _Path(_BASE_DIR) / "Writeups" / f"{date_str}.txt"
+                if not _wd.exists():
+                    print("\n── Generating X thread writeup ─────────────────────────")
+                    _gen_writeup(data)
+                else:
+                    print(f"  Writeup already exists: {_wd.name} — skipping")
+            except Exception as e:
+                print(f"  [warn] Writeup generation failed: {e}")
 
     # ── Step 2: Grade yesterday ───────────────────────────────────────────────
     print(f"\n  Grading bets for {yesterday}...")
