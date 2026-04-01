@@ -1,0 +1,16 @@
+DATE,MATCHUP,BET_SIGNAL,VEGAS_SPREAD,SPREAD_EDGE,MODEL_PRED,PRED_MARGIN,BOOK,ODDS,UNITS,MARKET,GAME_TIME
+2026-04-01,Los Angeles Angels @ Chicago Cubs,BET (LAA) ML (+139) [HIGH CONFIDENCE],+139,+2787.0%,6790.0% (model) vs 4000.0% (book),2790.0,DRAFTKINGS,+139,3,ML,2:20 PM ET
+2026-04-01,Texas Rangers @ Baltimore Orioles,BET (TEX) RL -1.5 (+160) [HIGH CONFIDENCE],-1.5,+2429.0%,6110.0% (model) vs 3680.0% (book),2430.0,FANDUEL,+160,3,SPREAD,12:36 PM ET
+2026-04-01,Tampa Bay Rays @ Milwaukee Brewers,BET (MIL) RL -1.5 (+162) [HIGH CONFIDENCE],-1.5,+2318.0%,5970.0% (model) vs 3660.0% (book),2310.0,FANDUEL,+162,3,SPREAD,1:40 PM ET
+2026-04-01,Minnesota Twins @ Kansas City Royals,BET (MIN) ML (-118) [HIGH CONFIDENCE],-118,+1592.0%,6790.0% (model) vs 5200.0% (book),1590.0,FANDUEL,-118,3,ML,7:40 PM ET
+2026-04-01,Athletics @ Atlanta Braves,BET (ATL) RL -1.5 (+105) [MEDIUM CONFIDENCE],-1.5,+1307.0%,5970.0% (model) vs 4670.0% (book),1300.0,FANDUEL,+105,2,SPREAD,12:15 PM ET
+2026-04-01,Boston Red Sox @ Houston Astros,BET (BOS) ML (-146) [MEDIUM CONFIDENCE],-146,+1083.0%,6790.0% (model) vs 5710.0% (book),1080.0,FANDUEL,-146,2,ML,2:10 PM ET
+2026-04-01,Boston Red Sox @ Houston Astros,BET (HOU/BOS) OVER 7.5 (+100) [LOW CONFIDENCE],7.5,+736.0%,5500.0% (model) vs 4760.0% (book),740.0,FANDUEL,+100,1,TOTAL,2:10 PM ET
+2026-04-01,Cleveland Guardians @ Los Angeles Dodgers,BET (CLE) RL +1.5 (-102) [MEDIUM CONFIDENCE],1.5,+1079.0%,5910.0% (model) vs 4830.0% (book),1080.0,FANDUEL,-102,2,SPREAD,8:20 PM ET
+2026-04-01,Pittsburgh Pirates @ Cincinnati Reds,BET (PIT) RL -1.5 (+112) [LOW CONFIDENCE],-1.5,+886.0%,5400.0% (model) vs 4520.0% (book),880.0,FANDUEL,+112,1,SPREAD,12:40 PM ET
+2026-04-01,Washington Nationals @ Philadelphia Phillies,BET (PHI) RL -1.5 (-118) [LOW CONFIDENCE],-1.5,+800.0%,5970.0% (model) vs 5170.0% (book),800.0,FANDUEL,-118,1,SPREAD,1:05 PM ET
+2026-04-01,San Francisco Giants @ San Diego Padres,BET (SDP) RL -1.5 (+150) [LOW CONFIDENCE],-1.5,+771.0%,4600.0% (model) vs 3830.0% (book),770.0,FANDUEL,+150,1,SPREAD,4:10 PM ET
+2026-04-01,Chicago White Sox @ Miami Marlins,BET (MIA) ML (-156) [LOW CONFIDENCE],-156,+764.0%,6620.0% (model) vs 5860.0% (book),760.0,FANDUEL,-156,1,ML,1:10 PM ET
+2026-04-01,Colorado Rockies @ Toronto Blue Jays,BET (TOR) RL -1.5 (-120) [LOW CONFIDENCE],-1.5,+757.0%,5970.0% (model) vs 5220.0% (book),750.0,FANDUEL,-120,1,SPREAD,1:07 PM ET
+2026-04-01,Detroit Tigers @ Arizona Diamondbacks,BET (ARI/DET) OVER 8.0 (+100) [LOW CONFIDENCE],8.0,+736.0%,5500.0% (model) vs 4760.0% (book),740.0,FANDUEL,+100,1,TOTAL,3:41 PM ET
+2026-04-01,New York Yankees @ Seattle Mariners,BET (SEA) ML (-120) [LOW CONFIDENCE],-120,+725.0%,5970.0% (model) vs 5240.0% (book),730.0,FANDUEL,-120,1,ML,4:10 PM ET

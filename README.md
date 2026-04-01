@@ -14,7 +14,7 @@ git pull
 ```bash
 git add .
 git commit -m "describe what you changed"
-git push
+git push --set-upstream origin main
 ```
 
 ---

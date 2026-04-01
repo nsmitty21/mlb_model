@@ -581,6 +581,8 @@ def _picks_to_game_format(all_picks: list, target_date: str) -> list:
         game_meta[key] = {
             "home_team": p.get("home_team", ""),
             "away_team": p.get("away_team", ""),
+            "home_sp":   p.get("home_sp",   ""),
+            "away_sp":   p.get("away_sp",   ""),
             "commence":  p.get("commence",  ""),
             "date":      target_date,
             "game_id":   key.replace("|", "_").replace(" ", "_"),
@@ -625,6 +627,8 @@ def _picks_to_game_format(all_picks: list, target_date: str) -> list:
             "commence":  game_meta[k]["commence"],
             "home_team": game_meta[k]["home_team"],
             "away_team": game_meta[k]["away_team"],
+            "home_sp":   game_meta[k]["home_sp"],
+            "away_sp":   game_meta[k]["away_sp"],
             "picks":     sorted(v, key=lambda x: x["units"], reverse=True),
         }
         for k, v in game_map.items()
@@ -858,7 +862,7 @@ def run(target_date: str | None = None, skip_injuries: bool = False):
     try:
         from generate_mlb_writeups import generate as _gen_writeup
         print("\n── Generating X thread writeup ─────────────────────────")
-        _gen_writeup(out)   # pass already-built dict to avoid re-reading file
+        _gen_writeup(out)
     except Exception as e:
         print(f"  [warn] Writeup generation failed: {e}")
 

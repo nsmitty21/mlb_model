@@ -69,45 +69,52 @@ def _game_time_et(commence: str) -> str:
 def _market_label(pick: dict) -> str:
     """
     Build a compact pick label for one line of the game tweet.
+
+    NOTE: edge is already stored as a percentage in picks_today.json
+    (run_today._picks_to_game_format multiplies by 100 before writing).
+    market is stored as "SPREAD" for run-line picks, not "RL".
+
     Examples:
-      RL  ATL -1.5 (+135 DK)   ⭐⭐⭐
-      ML  DET (+118 FD)         ⭐⭐
-      TOT U 8.5 (-108 FD)       ⭐⭐
+      RL  Braves -1.5 (+135 DK)   ⭐⭐⭐  Edge:19.0%
+      ML  Tigers (+118 FD)         ⭐⭐    Edge:15.5%
+      TOT O 7.5 (+100 FD)          ⭐      Edge:7.4%
     """
-    market = str(pick.get("market", "ML")).upper()
+    market = str(pick.get("type", pick.get("market", "ML"))).upper()
     team   = str(pick.get("team", ""))
     odds   = _fmt_odds(pick.get("odds"))
     book   = str(pick.get("book", "")).upper()
     units  = int(pick.get("units", 1))
-    edge   = float(pick.get("edge", 0)) * 100
+    edge   = float(pick.get("edge", 0))   # already a percentage e.g. 24.3
     stars  = _stars(units)
 
-    # Shorten book name
     book_short = "DK" if "DRAFT" in book else ("FD" if "FAN" in book else book[:2])
 
     if market == "ML":
-        # team is full name e.g. "Detroit Tigers"
         name_parts = team.split()
-        short = name_parts[-1] if name_parts else team  # "Tigers"
+        short = name_parts[-1] if name_parts else team
         return f"ML  {short} ({odds} {book_short})  {stars}  Edge:{edge:.1f}%"
 
-    elif market == "RL":
-        # team field is e.g. "Atlanta Braves -1.5"
+    elif market in ("SPREAD", "RL"):
+        # team field is e.g. "Atlanta Braves -1.5" — split off the spread suffix
         parts = team.rsplit(" ", 1)
-        if len(parts) == 2 and (parts[1].startswith("-") or parts[1].startswith("+")):
+        if len(parts) == 2 and parts[1] and parts[1][0] in "+-":
             name_parts = parts[0].split()
-            short = name_parts[-1] if name_parts else parts[0]
+            short  = name_parts[-1] if name_parts else parts[0]
             spread = parts[1]
         else:
             name_parts = team.split()
-            short  = name_parts[-1] if name_parts else team
-            spread = str(pick.get("spread_line", ""))
+            short = name_parts[-1] if name_parts else team
+            try:
+                sl = float(pick.get("spread_line") or pick.get("spread") or 1.5)
+                spread = f"{sl:+.1f}"
+            except (TypeError, ValueError):
+                spread = ""
         return f"RL  {short} {spread} ({odds} {book_short})  {stars}  Edge:{edge:.1f}%"
 
     elif market == "TOTAL":
-        side = str(pick.get("side", "")).upper()
+        direction = str(pick.get("direction", pick.get("side", "OVER"))).upper()
         line = pick.get("total_line", "")
-        prefix = "O" if side == "OVER" else "U"
+        prefix = "O" if direction == "OVER" else "U"
         return f"TOT {prefix} {line} ({odds} {book_short})  {stars}  Edge:{edge:.1f}%"
 
     else:
