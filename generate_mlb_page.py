@@ -150,12 +150,19 @@ def write_picks_csv(games: list, date_str: str) -> Path | None:
             market = str(pick.get("type", pick.get("market", "ML"))).upper()
             signal = _bet_signal(pick, ht, at)
 
-            # PRED_MARGIN: model probability × 100 for display
+            # model_prob, book_prob, and edge are already percentages in
+            # picks_today.json (run_today.py _picks_to_game_format multiplies
+            # by 100 before writing). Do NOT multiply by 100 here again.
             try:
-                pred_margin = round(float(pick.get("model_prob", 0)) * 100
-                                    - float(pick.get("book_prob",  0)) * 100, 1)
+                model_pct   = float(pick.get("model_prob", 0))
+                book_pct    = float(pick.get("book_prob",  0))
+                pred_margin = round(model_pct - book_pct, 1)
             except (TypeError, ValueError):
+                model_pct   = 0.0
+                book_pct    = 0.0
                 pred_margin = 0.0
+
+            edge_pct = float(pick.get("edge", 0))  # already a percentage
 
             # VEGAS_SPREAD: the line being bet
             if market in ("SPREAD", "RL"):
@@ -165,16 +172,13 @@ def write_picks_csv(games: list, date_str: str) -> Path | None:
             else:
                 vegas = _fmt_odds(pick.get("odds"))
 
-            edge_pct = float(pick.get("edge", 0))
-
             rows.append({
                 "DATE":        date_str,
                 "MATCHUP":     f"{at} @ {ht}",
                 "BET_SIGNAL":  signal,
                 "VEGAS_SPREAD": vegas,
-                "SPREAD_EDGE": f"{edge_pct*100:+.1f}%",
-                "MODEL_PRED":  f"{pick.get('model_prob',0)*100:.1f}% (model) vs "
-                               f"{pick.get('book_prob',0)*100:.1f}% (book)",
+                "SPREAD_EDGE": f"{edge_pct:+.1f}%",
+                "MODEL_PRED":  f"{model_pct:.1f}% (model) vs {book_pct:.1f}% (book)",
                 "PRED_MARGIN": pred_margin,
                 "BOOK":        str(pick.get("book", "")).upper(),
                 "ODDS":        _fmt_odds(pick.get("odds")),
@@ -206,6 +210,23 @@ def write_picks_csv(games: list, date_str: str) -> Path | None:
 # 2. GRADE YESTERDAY'S BETS via ESPN
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# ESPN uses non-standard abbreviations for 6 teams. Normalise them to the
+# same abbreviations the model uses so frozenset lookup keys always match.
+# Without this, every game involving KC/SD/SF/TB/WSH/CWS silently fails
+# to grade because frozenset(['MIN','KC']) != frozenset(['MIN','KCR']).
+_ESPN_ABBR_FIX = {
+    "KC":  "KCR",   # Kansas City Royals
+    "SD":  "SDP",   # San Diego Padres
+    "SF":  "SFG",   # San Francisco Giants
+    "TB":  "TBR",   # Tampa Bay Rays
+    "WSH": "WSN",   # Washington Nationals
+    "CWS": "CHW",   # Chicago White Sox
+}
+
+def _norm_espn_abbr(abbr: str) -> str:
+    return _ESPN_ABBR_FIX.get(abbr.upper(), abbr.upper())
+
+
 def _fetch_espn_scores(date_str: str) -> dict:
     """
     Fetch ESPN MLB scores for a given date.
@@ -234,8 +255,8 @@ def _fetch_espn_scores(date_str: str) -> dict:
             away  = next(t for t in teams if t["homeAway"] == "away")
             if not comp.get("status", {}).get("type", {}).get("completed", False):
                 continue
-            ha = home["team"]["abbreviation"].upper()
-            aa = away["team"]["abbreviation"].upper()
+            ha = _norm_espn_abbr(home["team"]["abbreviation"])
+            aa = _norm_espn_abbr(away["team"]["abbreviation"])
             hs = int(float(home.get("score", 0) or 0))
             as_ = int(float(away.get("score", 0) or 0))
             key = frozenset([ha, aa])
