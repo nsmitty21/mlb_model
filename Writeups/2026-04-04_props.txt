@@ -1,61 +1,66 @@
 MLB PROPS — 2026-04-04
 ============================================================
-Generated: 2026-04-04 14:51
+Generated: 2026-04-04 19:23
 
 ────────────────────────────────────────────────────────────
 BEAT THE STREAK
 ────────────────────────────────────────────────────────────
-🎯 Pick: Justin Crawford ()
-   vs TBD @ 
-   Season: .412 AVG | OPS 0.856 | Hit rate 38.9%
-   Pitcher H-allowed: 28.0%  Park: 1.00x
-   Current personal streak: 1 games
+🎯 Pick: Sal Stewart (San Diego Padres)
+   vs C. Early @ Boston Red Sox
+   Season: .377 AVG | OPS 1.143 | Hit rate 34.5%
+   Pitcher H-allowed: 23.5%  Park: 1.08x
+   Current personal streak: 5 games
    BTS streak this season:  0 games (best: 0)
 
   Top 5 candidates:
-  1. Justin Crawford ()  Score:0.663  Avg:0.412  Streak:1
-  2. Sal Stewart ()  Score:0.649  Avg:0.377  Streak:5
-  3. Vladimir Guerrero Jr. ()  Score:0.646  Avg:0.295  Streak:16
-  4. Kazuma Okamoto ()  Score:0.630  Avg:0.400  Streak:4
-  5. Jonathan Aranda ()  Score:0.594  Avg:0.280  Streak:11
+  1. Sal Stewart (San Diego Padres)  Score:0.671  Avg:0.377  Streak:5
+  2. Justin Crawford ()  Score:0.663  Avg:0.412  Streak:1
+  3. Xavier Edwards (New York Yankees)  Score:0.574  Avg:0.299  Streak:7
+  4. Vladimir Guerrero Jr. (Houston Astros)  Score:0.559  Avg:0.295  Streak:16
+  5. Owen Caissie (New York Yankees)  Score:0.551  Avg:0.275  Streak:4
 
 ────────────────────────────────────────────────────────────
 HOME RUN PROPS
 ────────────────────────────────────────────────────────────
-  1. Munetaka Murakami ()  HR%: 23.8%  vs TBD
-     Season: 5 HR / 21 PA  (23.81% rate)  Park: 1.00x  Pitcher mult: 1.00x
-  2. Carson Benge ()  HR%: 13.6%  vs TBD
-     Season: 3 HR / 22 PA  (13.64% rate)  Park: 1.00x  Pitcher mult: 1.00x
-  3. JJ Wetherholt ()  HR%: 12.0%  vs TBD
-     Season: 3 HR / 25 PA  (12.00% rate)  Park: 1.00x  Pitcher mult: 1.00x
-  4. Colson Montgomery ()  HR%: 7.2%  vs TBD
-     Season: 22 HR / 304 PA  (7.24% rate)  Park: 1.00x  Pitcher mult: 1.00x
-  5. Sal Stewart ()  HR%: 7.1%  vs TBD
-     Season: 6 HR / 84 PA  (7.14% rate)  Park: 1.00x  Pitcher mult: 1.00x
+  1. Munetaka Murakami (Kansas City Royals)  HR%: 20.6%  vs B. Sproat
+     Season: 5 HR / 21 PA  (23.81% rate)  Park: 0.97x  Pitcher mult: 0.89x
+     Career H2H: 1 HR / 2 PA  (< 10 PA — season rate used)
+  2. JJ Wetherholt (Minnesota Twins)  HR%: 10.3%  vs S. Matz
+     Season: 3 HR / 25 PA  (12.00% rate)  Park: 0.98x  Pitcher mult: 0.88x
+     Career H2H: 0 HR / 3 PA  (< 10 PA — season rate used)
+  3. TJ Rumfield (New York Yankees)  HR%: 9.8%  vs M. Meyer
+     Season: 1 HR / 15 PA  (6.67% rate)  Park: 1.01x  Pitcher mult: 1.46x
+     Career H2H: 0 HR / 3 PA  (< 10 PA — season rate used)
+  4. Kazuma Okamoto (Houston Astros)  HR%: 8.1%  vs L. Morales
+     Season: 1 HR / 18 PA  (5.56% rate)  Park: 0.96x  Pitcher mult: 1.52x
+     Career H2H: 1 HR / 2 PA  (< 10 PA — season rate used)
+  5. Sal Stewart (San Diego Padres)  HR%: 7.7%  vs C. Early
+     Season: 6 HR / 84 PA  (7.14% rate)  Park: 1.08x  Pitcher mult: 1.00x
+     Career H2H: 0 HR / 2 PA  (< 10 PA — season rate used)
 
 ────────────────────────────────────────────────────────────
 NRFI / YRFI PICKS
 ────────────────────────────────────────────────────────────
   2 actionable pick(s):
 
-  💥 YRFI  Baltimore Orioles @ Pittsburgh Pirates  (37% NRFI)  Conf: 27%
+  💥 YRFI  Philadelphia Phillies @ Colorado Rockies  (26% NRFI)  Conf: 47%
+     J. Luzardo [league avg] vs B. Bernardino [42% NRFI (12 GS)]  Park: 1.18x
+  💥 YRFI  Baltimore Orioles @ Pittsburgh Pirates  (36% NRFI)  Conf: 29%
      S. Baz [64% NRFI (56 GS)] vs C. Mlodzinski [56% NRFI (18 GS)]  Park: 0.96x
-  🔒 NRFI  Toronto Blue Jays @ Chicago White Sox  (60% NRFI)  Conf: 20%
-     M. Fluharty [limited data] vs G. Taylor [limited data]  Park: 0.97x
 
   All games (sorted by confidence):
-  Baltimore Orioles    @ Pittsburgh Pirates    NRFI: 37%  YRFI: 63% ← YRFI
-  Toronto Blue Jays    @ Chicago White Sox     NRFI: 60%  YRFI: 40% ← NRFI
-  Philadelphia Phillie @ Colorado Rockies      NRFI: 45%  YRFI: 55%
-  Tampa Bay Rays       @ Minnesota Twins       NRFI: 46%  YRFI: 54%
+  Philadelphia Phillie @ Colorado Rockies      NRFI: 26%  YRFI: 74% ← YRFI
+  Baltimore Orioles    @ Pittsburgh Pirates    NRFI: 36%  YRFI: 64% ← YRFI
+  Cincinnati Reds      @ Texas Rangers         NRFI: 60%  YRFI: 40%
+  Toronto Blue Jays    @ Chicago White Sox     NRFI: 59%  YRFI: 41%
+  Tampa Bay Rays       @ Minnesota Twins       NRFI: 45%  YRFI: 55%
   New York Mets        @ San Francisco Giants  NRFI: 46%  YRFI: 54%
-  San Diego Padres     @ Boston Red Sox        NRFI: 52%  YRFI: 48%
+  Atlanta Braves       @ Arizona Diamondbacks  NRFI: 46%  YRFI: 54%
+  Chicago Cubs         @ Cleveland Guardians   NRFI: 46%  YRFI: 54%
+  Houston Astros       @ Athletics             NRFI: 53%  YRFI: 47%
   St. Louis Cardinals  @ Detroit Tigers        NRFI: 48%  YRFI: 52%
-  Milwaukee Brewers    @ Kansas City Royals    NRFI: 52%  YRFI: 48%
-  Los Angeles Dodgers  @ Washington Nationals  NRFI: 52%  YRFI: 48%
-  Seattle Mariners     @ Los Angeles Angels    NRFI: 52%  YRFI: 48%
-  Houston Astros       @ Athletics             NRFI: 52%  YRFI: 48%
-  Chicago Cubs         @ Cleveland Guardians   NRFI: 51%  YRFI: 49%
-  Cincinnati Reds      @ Texas Rangers         NRFI: 50%  YRFI: 50%
-  Miami Marlins        @ New York Yankees      NRFI: 50%  YRFI: 50%
-  Atlanta Braves       @ Arizona Diamondbacks  NRFI: 50%  YRFI: 50%
+  Miami Marlins        @ New York Yankees      NRFI: 48%  YRFI: 52%
+  San Diego Padres     @ Boston Red Sox        NRFI: 52%  YRFI: 48%
+  Seattle Mariners     @ Los Angeles Angels    NRFI: 51%  YRFI: 49%
+  Los Angeles Dodgers  @ Washington Nationals  NRFI: 49%  YRFI: 51%
+  Milwaukee Brewers    @ Kansas City Royals    NRFI: 50%  YRFI: 50%

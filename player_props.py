@@ -59,74 +59,144 @@ PARK_FACTORS = {
 }
 
 
-# ── BBRef home-team abbreviations (first 3 chars of bbref_game_id) ────────────
-# bbref_game_id encodes the home team: e.g. "SFN202603250" → home = SFN.
-# This lets us derive the exact team name for every batter without a roster,
-# using only bbref_game_id + batting_team_home (0/1) from the PA files.
-BBREF_HOME_ABBR_TO_FULL = {
-    "ARI": "Arizona Diamondbacks",   "ATL": "Atlanta Braves",
-    "BAL": "Baltimore Orioles",      "BOS": "Boston Red Sox",
-    "CHN": "Chicago Cubs",           "CHA": "Chicago White Sox",
-    "CIN": "Cincinnati Reds",        "CLE": "Cleveland Guardians",
-    "COL": "Colorado Rockies",       "DET": "Detroit Tigers",
-    "HOU": "Houston Astros",         "KCA": "Kansas City Royals",
-    "ANA": "Los Angeles Angels",     "LAN": "Los Angeles Dodgers",
-    "MIA": "Miami Marlins",          "MIL": "Milwaukee Brewers",
-    "MIN": "Minnesota Twins",        "NYN": "New York Mets",
-    "NYA": "New York Yankees",       "OAK": "Oakland Athletics",
-    "PHI": "Philadelphia Phillies",  "PIT": "Pittsburgh Pirates",
-    "SDN": "San Diego Padres",       "SFN": "San Francisco Giants",
-    "SEA": "Seattle Mariners",       "SLN": "St. Louis Cardinals",
-    "TBA": "Tampa Bay Rays",         "TEX": "Texas Rangers",
-    "TOR": "Toronto Blue Jays",      "WAS": "Washington Nationals",
-    "ATH": "Athletics",              # Sacramento relocation 2026
-}
-
-# Reverse map: full team name → BBRef home abbr (for cross-referencing today_lines)
-FULL_TO_BBREF_ABBR = {v: k for k, v in BBREF_HOME_ABBR_TO_FULL.items()}
+# NOTE: Team assignment no longer uses bbref_game_id prefixes because the 2026
+# PA files mix BBRef-format IDs ("SFN202603250") and ESPN-format IDs ("mlb_824864").
+# build_batter_team_map() now uses pitcher names from today_lines.json as the
+# anchor — if the pitcher matches a known home_sp or away_sp, the batter's team
+# is determined directly from the game's home_team/away_team fields.
 
 
 def build_batter_team_map(pa_slice: pd.DataFrame, games: list) -> dict:
     """
-    Build a precise batter → full_team_name mapping from PA data.
+    Build batter → full_team_name from PA data + today's game list.
 
-    For home batters (batting_team_home == 1):
-        team = BBREF_HOME_ABBR_TO_FULL[bbref_game_id[:3]]
+    Works for any game ID format (BBRef 'SFN202603250' or ESPN 'mlb_824864')
+    by using PITCHER NAMES as the anchor instead of game ID prefixes.
 
-    For away batters (batting_team_home == 0):
-        home_abbr = bbref_game_id[:3]  → home_full_name
-        cross-reference today_lines games list to find which team is
-        playing away at that home park today → away_full_name
+    Logic:
+      From today_lines.json we know: home_sp pitches for home_team,
+      away_sp pitches for away_team.
 
-    This replaces the old approach that looped over all games for every row
-    and only worked for home batters.
+      For every PA row:
+        - The pitcher column tells us who was on the mound.
+        - If that pitcher == home_sp of some game → the BATTER is on the away team.
+        - If that pitcher == away_sp of some game → the BATTER is on the home team.
+        - batting_team_home (0/1) is the tiebreaker when a pitcher has multiple
+          game appearances (e.g. relievers who pitched in more than one game).
+
+      For batters whose pitcher isn't a known starter (relievers mid-game),
+      we fall back to grouping by game_id: once any batter in a game is mapped,
+      all batters in the same game with the same batting_team_home value share
+      the same team.
     """
-    # Build home_abbr → away_team lookup from today's games list
-    home_abbr_to_away: dict[str, str] = {}
+    # ── Step 1: build pitcher → {home_team, away_team} from games list ────────
+    # A starter pitching to the opposing team identifies both sides.
+    sp_to_game: dict[str, dict] = {}   # normalized pitcher name → game dict
     for g in games:
-        ht = g.get("home_team", "")
-        at = g.get("away_team", "")
-        ha = FULL_TO_BBREF_ABBR.get(ht, ht[:3].upper())
-        home_abbr_to_away[ha] = at
+        hsp = (g.get("home_sp") or "").strip()
+        asp = (g.get("away_sp") or "").strip()
+        if hsp:
+            sp_to_game[hsp.lower()] = g
+        if asp:
+            sp_to_game[asp.lower()] = g
 
+    # ── Step 2: assign each batter a team via their pitcher ───────────────────
     batter_to_team: dict[str, str] = {}
-    for _, row in pa_slice.iterrows():
-        batter    = row["batter"]
-        gid       = str(row["bbref_game_id"])
-        home_abbr = gid[:3].upper()
-        home_full = BBREF_HOME_ABBR_TO_FULL.get(home_abbr, "")
+    # Also build game_id → {0: away_team, 1: home_team} for reliever fallback
+    gameid_side_to_team: dict[tuple, str] = {}
 
-        if row["batting_team_home"] == 1:
-            batter_to_team[batter] = home_full
-        else:
-            # Away batter: look up which team is visiting this home park today
-            away_full = home_abbr_to_away.get(home_abbr, "")
-            if away_full:
-                batter_to_team[batter] = away_full
-            # If not in today's games (historical data), leave unmapped —
-            # the calling function will fall back to empty string
+    for _, row in pa_slice.iterrows():
+        batter   = str(row["batter"])
+        pitcher  = str(row["pitcher"]).replace("\xa0", " ").strip()
+        is_home  = int(row["batting_team_home"])
+        game_id  = str(row["bbref_game_id"])
+
+        game = sp_to_game.get(pitcher.lower())
+        if game:
+            ht = game.get("home_team", "")
+            at = game.get("away_team", "")
+            # Batter faces this pitcher:
+            #   home_sp pitches to AWAY batters (is_home=0)
+            #   away_sp pitches to HOME batters (is_home=1)
+            if pitcher.lower() == (game.get("home_sp") or "").lower():
+                # Home SP → batter is on the away team
+                batter_to_team[batter] = at
+                gameid_side_to_team[(game_id, 0)] = at
+                gameid_side_to_team[(game_id, 1)] = ht
+            elif pitcher.lower() == (game.get("away_sp") or "").lower():
+                # Away SP → batter is on the home team
+                batter_to_team[batter] = ht
+                gameid_side_to_team[(game_id, 1)] = ht
+                gameid_side_to_team[(game_id, 0)] = at
+
+    # ── Step 3: reliever fallback — use game_id + batting_team_home ───────────
+    for _, row in pa_slice.iterrows():
+        batter  = str(row["batter"])
+        if batter in batter_to_team:
+            continue
+        is_home = int(row["batting_team_home"])
+        game_id = str(row["bbref_game_id"])
+        team = gameid_side_to_team.get((game_id, is_home))
+        if team:
+            batter_to_team[batter] = team
 
     return batter_to_team
+
+
+def fetch_espn_starters_today(target_date: str | None = None) -> dict:
+    """
+    Fetch today's starting pitchers from ESPN public API.
+    Returns dict: {home_team_full: (home_sp, away_sp), ...}
+    Used as fallback when picks_today.json doesn't exist yet.
+    """
+    import requests
+    from datetime import date as _date
+
+    ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb"
+    if target_date is None:
+        target_date = _date.today().strftime("%Y%m%d")
+    else:
+        target_date = target_date.replace("-", "")
+
+    try:
+        r = requests.get(
+            f"{ESPN_BASE}/scoreboard",
+            params={"dates": target_date, "limit": 50},
+            timeout=10,
+        )
+        r.raise_for_status()
+        events = r.json().get("events", [])
+    except Exception as e:
+        print(f"  [warn] ESPN starters fetch failed: {e}")
+        return {}
+
+    result = {}
+    for ev in events:
+        try:
+            comps = ev.get("competitions", [{}])[0]
+            competitors = comps.get("competitors", [])
+            home_c = next((c for c in competitors if c["homeAway"] == "home"), None)
+            away_c = next((c for c in competitors if c["homeAway"] == "away"), None)
+            if not home_c or not away_c:
+                continue
+            hn = home_c["team"].get("displayName", "")
+            an = away_c["team"].get("displayName", "")
+            home_sp = away_sp = ""
+            for comp in competitors:
+                for p in comp.get("probables", []):
+                    name = p.get("athlete", {}).get("fullName", "")
+                    if comp["homeAway"] == "home":
+                        home_sp = name
+                    else:
+                        away_sp = name
+            result[hn] = {"home_sp": home_sp, "away_sp": away_sp,
+                          "home_team": hn, "away_team": an}
+        except Exception:
+            continue
+
+    n = sum(1 for v in result.values() if v["home_sp"] or v["away_sp"])
+    print(f"  ESPN starters: {n}/{len(result)} games have SP data")
+    return result
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -169,9 +239,12 @@ def load_pa_data() -> pd.DataFrame:
 
 def load_today_games() -> list:
     """
-    Load today_lines.json and return the games list.
-    Also merges home_sp/away_sp from picks_today.json if it exists,
-    so standalone runs get starter names without needing picks_json passed in.
+    Load today_lines.json and return the games list, with SP names populated.
+
+    SP name priority (highest to lowest):
+      1. picks_today.json  — written by run_today.py, has ESPN-fetched SPs
+      2. ESPN API          — fetched directly as fallback (standalone runs)
+      3. Empty string      — unknown, props functions use league-average rates
     """
     if not LINES_PATH.exists():
         print("  [warn] today_lines.json not found — run pull_lines.py first")
@@ -179,31 +252,50 @@ def load_today_games() -> list:
     with open(LINES_PATH) as f:
         games = json.load(f)
 
-    # Merge SP names from picks_today.json (written by run_today.py)
+    # Initialise home_sp/away_sp keys so downstream code can always .get() them
+    for g in games:
+        g.setdefault("home_sp", "")
+        g.setdefault("away_sp", "")
+
+    # ── Source 1: picks_today.json (run_today.py writes ESPN starters here) ──
     picks_path = Path(LIVE_DIR) / "picks_today.json"
     if picks_path.exists():
         try:
             with open(picks_path) as f:
                 picks_data = json.load(f)
-            # Build lookup: "HomeTeam|AwayTeam" → {home_sp, away_sp}
-            sp_lookup = {}
-            for pg in picks_data.get("games", []):
-                key = f"{pg.get('home_team','')}|{pg.get('away_team','')}"
-                sp_lookup[key] = {
-                    "home_sp": pg.get("home_sp", ""),
-                    "away_sp": pg.get("away_sp", ""),
-                }
-            # Apply to today_lines games
+            sp_lookup = {
+                f"{pg.get('home_team','')}|{pg.get('away_team','')}": pg
+                for pg in picks_data.get("games", [])
+            }
             for g in games:
                 key = f"{g.get('home_team','')}|{g.get('away_team','')}"
-                if key in sp_lookup:
-                    if not g.get("home_sp") and sp_lookup[key]["home_sp"]:
-                        g["home_sp"] = sp_lookup[key]["home_sp"]
-                    if not g.get("away_sp") and sp_lookup[key]["away_sp"]:
-                        g["away_sp"] = sp_lookup[key]["away_sp"]
+                pg  = sp_lookup.get(key)
+                if pg:
+                    if not g["home_sp"] and pg.get("home_sp"):
+                        g["home_sp"] = pg["home_sp"]
+                    if not g["away_sp"] and pg.get("away_sp"):
+                        g["away_sp"] = pg["away_sp"]
         except Exception as e:
-            print(f"  [warn] Could not merge SP names from picks_today.json: {e}")
+            print(f"  [warn] picks_today.json SP merge failed: {e}")
 
+    # ── Source 2: ESPN API — for any games still missing SPs ─────────────────
+    missing_sp = [g for g in games if not g["home_sp"] and not g["away_sp"]]
+    if missing_sp:
+        try:
+            espn_starters = fetch_espn_starters_today()
+            for g in games:
+                ht  = g.get("home_team", "")
+                esp = espn_starters.get(ht)
+                if esp:
+                    if not g["home_sp"] and esp.get("home_sp"):
+                        g["home_sp"] = esp["home_sp"]
+                    if not g["away_sp"] and esp.get("away_sp"):
+                        g["away_sp"] = esp["away_sp"]
+        except Exception as e:
+            print(f"  [warn] ESPN starter fallback failed: {e}")
+
+    n_with_sp = sum(1 for g in games if g.get("home_sp") or g.get("away_sp"))
+    print(f"  SPs loaded: {n_with_sp}/{len(games)} games have starter data")
     return games
 
 
@@ -478,6 +570,32 @@ def pick_beat_the_streak(
 # League-average HR/PA ≈ 0.033 (roughly 1 HR per 30 PAs)
 LEAGUE_AVG_HR_PA = 0.033
 
+# Minimum career PA needed to trust BvP HR rate over season rate
+BVP_MIN_PA = 10
+
+
+def load_bvp_hr(pa: pd.DataFrame) -> pd.DataFrame:
+    """
+    Build career batter-vs-pitcher HR stats directly from the PA data files.
+    Returns a DataFrame indexed by (batter, pitcher) with columns:
+      bvp_pa, bvp_hr, bvp_hr_rate, bvp_h, bvp_avg
+
+    We compute this from the full PA dataset (all years) so it's genuinely
+    career H2H data — the same matchup history the book is pricing against.
+    """
+    g = pa.groupby(["batter", "pitcher"]).agg(
+        bvp_pa=("PA",  "sum"),
+        bvp_ab=("AB",  "sum"),
+        bvp_h= ("H",   "sum"),
+        bvp_hr=("HR",  "sum"),
+        bvp_bb=("BB",  "sum"),
+        bvp_k= ("K",   "sum"),
+    ).reset_index()
+
+    g["bvp_hr_rate"] = (g["bvp_hr"] / g["bvp_pa"].replace(0, np.nan)).round(4)
+    g["bvp_avg"]     = (g["bvp_h"]  / g["bvp_ab"].replace(0, np.nan)).round(3)
+    return g.set_index(["batter", "pitcher"])
+
 
 def pick_hr_props(
     games: list,
@@ -486,21 +604,29 @@ def pick_hr_props(
     pitcher_stats: pd.DataFrame,
     game_log: pd.DataFrame,
     today_str: str,
+    bvp_hr: pd.DataFrame | None = None,
     top_n: int = 5,
 ) -> list:
     """
-    Rank today's batters for HR likelihood.
+    Rank today's batters for HR likelihood using three layers:
 
-    Score = batter_hr_rate × pitcher_hr_rate_multiplier × park_factor
-    where pitcher_hr_rate_multiplier = (pitcher_hr_per_pa / league_avg).
+      1. Season HR/PA rate   (batter's overall HR rate this year)
+      2. Pitcher HR-allowed  (how many HRs this pitcher gives up per PA)
+      3. Career BvP HR rate  (how many HRs THIS batter has hit off THIS pitcher)
 
-    Returns top_n picks sorted by score descending.
+    When career BvP data exists (≥ BVP_MIN_PA), it's blended with the season
+    rate using a credibility weight:
+        blend = bvp_weight * bvp_hr_rate + (1 - bvp_weight) * season_hr_rate
+    where bvp_weight = min(bvp_pa / 50, 0.6) — caps at 60% so season context
+    always contributes.  50 PA = full credibility threshold.
+
+    Final score = blended_hr_rate × pitcher_mult × park_factor
     """
     last_game_date = pa["game_date"].max()
     recent_batters = pa[pa["game_date"] == last_game_date]["batter"].unique()
     recent_pa      = pa[pa["game_date"] == last_game_date]
 
-    # Build batter → team + opponent SP map
+    # Build team and SP maps from today's games
     sp_map   = {}
     park_map = {}
     for g in games:
@@ -508,12 +634,11 @@ def pick_hr_props(
         at  = g.get("away_team", "")
         hsp = g.get("home_sp", "") or ""
         asp = g.get("away_sp", "") or ""
-        sp_map[ht]   = asp
-        sp_map[at]   = hsp
+        sp_map[ht]   = asp    # home batters face away SP
+        sp_map[at]   = hsp    # away batters face home SP
         park_map[ht] = ht
         park_map[at] = ht
 
-    # Derive exact team names from bbref_game_id[:3] + batting_team_home
     batter_to_team = build_batter_team_map(recent_pa, games)
 
     candidates = []
@@ -529,38 +654,64 @@ def pick_hr_props(
         home_tm = park_map.get(team, team)
         park    = PARK_FACTORS.get(home_tm, 1.00)
 
-        batter_hr_rate = float(bs["hr_per_pa"] or 0)
-        if batter_hr_rate == 0:
-            continue   # never hit a HR in this sample — skip
+        season_hr_rate = float(bs["hr_per_pa"] or 0)
+        if season_hr_rate == 0:
+            continue   # no HRs in sample — skip
 
-        # Pitcher HR-allowed multiplier (relative to league average)
+        # ── Layer 2: pitcher HR-allowed rate ─────────────────────────────────
         if opp_sp and opp_sp in pitcher_stats.index:
             ps = pitcher_stats.loc[opp_sp]
             pitcher_hr_rate = float(ps["hr_per_pa_allowed"] or LEAGUE_AVG_HR_PA)
         else:
             pitcher_hr_rate = LEAGUE_AVG_HR_PA
+        pitcher_mult = pitcher_hr_rate / LEAGUE_AVG_HR_PA
 
-        pitcher_mult = pitcher_hr_rate / LEAGUE_AVG_HR_PA   # >1 = pitcher allows more HRs
+        # ── Layer 3: career BvP HR rate ───────────────────────────────────────
+        bvp_pa      = 0
+        bvp_hr_val  = 0
+        bvp_hr_rate = None
+        bvp_avg     = None
+        blended_hr_rate = season_hr_rate   # default: season only
 
-        # Final HR probability estimate
-        hr_prob = batter_hr_rate * pitcher_mult * park
-        hr_prob = min(hr_prob, 0.25)   # hard cap at 25% (physical ceiling)
+        if bvp_hr is not None and opp_sp:
+            idx = (batter, opp_sp)
+            if idx in bvp_hr.index:
+                row         = bvp_hr.loc[idx]
+                bvp_pa      = int(row["bvp_pa"])
+                bvp_hr_val  = int(row["bvp_hr"])
+                bvp_hr_rate = float(row["bvp_hr_rate"] or 0)
+                bvp_avg     = float(row["bvp_avg"]     or 0) if not pd.isna(row["bvp_avg"]) else None
+
+                if bvp_pa >= BVP_MIN_PA:
+                    # Credibility-weighted blend
+                    bvp_weight      = min(bvp_pa / 50.0, 0.60)
+                    blended_hr_rate = (bvp_weight * bvp_hr_rate +
+                                       (1 - bvp_weight) * season_hr_rate)
+
+        # ── Final HR probability ──────────────────────────────────────────────
+        hr_prob = blended_hr_rate * pitcher_mult * park
+        hr_prob = min(hr_prob, 0.25)   # hard cap at 25%
 
         candidates.append({
-            "batter":          batter,
-            "team":            team,
-            "opp_sp":          opp_sp,
-            "park":            home_tm,
-            "park_factor":     park,
-            "season_hr":       int(bs["HR"]),
-            "season_pa":       int(bs["PA"]),
-            "hr_per_pa":       round(batter_hr_rate, 4),
-            "pitcher_hr_rate": round(pitcher_hr_rate, 4),
-            "pitcher_mult":    round(pitcher_mult, 2),
-            "hr_prob":         round(hr_prob, 4),
-            "hr_prob_pct":     round(hr_prob * 100, 1),
-            "season_avg":      round(float(bs["AVG"] or 0), 3),
-            "season_ops":      round(float(bs["OPS"] or 0), 3),
+            "batter":           batter,
+            "team":             team,
+            "opp_sp":           opp_sp or "TBD",
+            "park":             home_tm,
+            "park_factor":      park,
+            "season_hr":        int(bs["HR"]),
+            "season_pa":        int(bs["PA"]),
+            "season_hr_rate":   round(season_hr_rate, 4),
+            "pitcher_hr_rate":  round(pitcher_hr_rate, 4),
+            "pitcher_mult":     round(pitcher_mult, 2),
+            "bvp_pa":           bvp_pa,
+            "bvp_hr":           bvp_hr_val,
+            "bvp_hr_rate":      round(bvp_hr_rate, 4) if bvp_hr_rate is not None else None,
+            "bvp_avg":          round(bvp_avg, 3)     if bvp_avg     is not None else None,
+            "blended_hr_rate":  round(blended_hr_rate, 4),
+            "hr_prob":          round(hr_prob, 4),
+            "hr_prob_pct":      round(hr_prob * 100, 1),
+            "season_avg":       round(float(bs["AVG"] or 0), 3),
+            "season_ops":       round(float(bs["OPS"] or 0), 3),
         })
 
     candidates.sort(key=lambda x: x["hr_prob"], reverse=True)
@@ -862,10 +1013,23 @@ def build_props_writeup(bts: dict, hr_props: list, nrfi_picks: list, today_str: 
             )
             lines.append(
                 f"     Season: {p['season_hr']} HR / {p['season_pa']} PA  "
-                f"({p['hr_per_pa']*100:.2f}% rate)  "
+                f"({p['season_hr_rate']*100:.2f}% rate)  "
                 f"Park: {p['park_factor']:.2f}x  "
                 f"Pitcher mult: {p['pitcher_mult']:.2f}x"
             )
+            # Show BvP career data if we have it
+            if p.get("bvp_pa", 0) >= BVP_MIN_PA:
+                bvp_avg_str = f".{int(p['bvp_avg']*1000):03d}" if p.get("bvp_avg") is not None else "---"
+                lines.append(
+                    f"     Career H2H: {p['bvp_hr']} HR / {p['bvp_pa']} PA  "
+                    f"({p['bvp_hr_rate']*100:.2f}% rate)  "
+                    f"AVG {bvp_avg_str}  ← blended into score"
+                )
+            elif p.get("bvp_pa", 0) > 0:
+                lines.append(
+                    f"     Career H2H: {p['bvp_hr']} HR / {p['bvp_pa']} PA  "
+                    f"(< {BVP_MIN_PA} PA — season rate used)"
+                )
     else:
         lines.append("  No HR props available today.")
 
@@ -983,34 +1147,41 @@ def generate(picks_json: dict | None = None) -> dict | None:
     Main entry point. Called by run_today.py after saving picks_today.json,
     or standalone via python player_props.py.
 
-    picks_json: the already-parsed picks_today.json (optional — used to get
-                today's starting pitchers if available).
+    picks_json: the already-parsed picks_today.json dict (optional).
+                When provided, its game-level SP names are merged into the
+                games list before any SP lookup fallbacks run.
     Returns the full props dict written to player_props_today.json.
     """
     today_str = date.today().isoformat()
     print("\n── Player Props ────────────────────────────────────────")
 
-    # Load PA data
+    # Load PA data (all years — needed for career BvP HR stats)
     try:
         pa = load_pa_data()
     except FileNotFoundError as e:
         print(f"  [error] {e}")
         return None
 
-    # Load today's games (with SP info from picks_json if available)
+    # Load today's games with SPs (picks_today.json → ESPN → empty)
+    # If picks_json was passed in by run_today.py, pre-populate SP names
+    # so load_today_games finds them in picks_today.json on disk.
     games = load_today_games()
+
+    # Additional SP merge from in-memory picks_json (run_today.py passes this
+    # immediately after writing picks_today.json, so it's always current)
     if picks_json:
-        # Merge SP names from picks_json into games (more reliable than lines JSON)
         picks_games = {
             f"{g.get('home_team')}|{g.get('away_team')}": g
             for g in picks_json.get("games", [])
         }
         for g in games:
             key = f"{g.get('home_team')}|{g.get('away_team')}"
-            if key in picks_games:
-                pg = picks_games[key]
-                if pg.get("home_sp"): g["home_sp"] = pg["home_sp"]
-                if pg.get("away_sp"): g["away_sp"] = pg["away_sp"]
+            pg  = picks_games.get(key)
+            if pg:
+                if not g.get("home_sp") and pg.get("home_sp"):
+                    g["home_sp"] = pg["home_sp"]
+                if not g.get("away_sp") and pg.get("away_sp"):
+                    g["away_sp"] = pg["away_sp"]
 
     if not games:
         print("  [warn] No games found — run pull_lines.py first")
@@ -1022,6 +1193,14 @@ def generate(picks_json: dict | None = None) -> dict | None:
     pitcher_stats = build_pitcher_stats(pa)
     game_log      = build_batter_game_log(pa)
 
+    # Build career BvP HR table from full PA history
+    print("  Building career BvP HR matchups...")
+    bvp_hr = load_bvp_hr(pa)
+    n_matchups = len(bvp_hr)
+    n_with_hr  = (bvp_hr["bvp_hr"] > 0).sum()
+    print(f"  BvP HR: {n_matchups:,} career matchups, "
+          f"{n_with_hr:,} with at least one HR")
+
     # Grade yesterday's BTS pick before making today's
     grade_bts_yesterday(pa)
 
@@ -1031,12 +1210,13 @@ def generate(picks_json: dict | None = None) -> dict | None:
         games, pa, batter_stats, pitcher_stats, game_log, today_str
     )
 
-    print("  Computing HR props...")
+    print("  Computing HR props (season + BvP career)...")
     hr_props = pick_hr_props(
-        games, pa, batter_stats, pitcher_stats, game_log, today_str
+        games, pa, batter_stats, pitcher_stats, game_log, today_str,
+        bvp_hr=bvp_hr,
     )
 
-    print("  Computing NRFI/YRFI picks (historical backtest)...")
+    print("  Computing NRFI/YRFI picks...")
     nrfi_picks = pick_nrfi(games, pa, batter_stats, pitcher_stats, today_str)
 
     # ── Save BTS tracker with today's pick ───────────────────────────────────
@@ -1080,8 +1260,11 @@ def generate(picks_json: dict | None = None) -> dict | None:
     if hr_props:
         print(f"\n  💣 HR Props (top {len(hr_props)}):")
         for p in hr_props:
+            bvp_str = ""
+            if p.get("bvp_pa", 0) >= BVP_MIN_PA:
+                bvp_str = f"  BvP: {p['bvp_hr']}HR/{p['bvp_pa']}PA"
             print(f"     {p['batter']:<22} {p['hr_prob_pct']:.1f}%  "
-                  f"vs {_short_pitcher(p['opp_sp'])}")
+                  f"vs {_short_pitcher(p['opp_sp'])}{bvp_str}")
 
     if nrfi_picks_only:
         print(f"\n  ⚾ NRFI/YRFI ({len(nrfi_picks_only)} picks):")
