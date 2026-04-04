@@ -866,6 +866,13 @@ def run(target_date: str | None = None, skip_injuries: bool = False):
     except Exception as e:
         print(f"  [warn] Writeup generation failed: {e}")
 
+    # ── Auto-generate player props (BTS / HR / NRFI) ─────────────────────────
+    try:
+        from player_props import generate as _gen_props
+        _gen_props(out)
+    except Exception as e:
+        print(f"  [warn] Player props generation failed: {e}")
+
     print("Run next: python generate_mlb_page.py")
 
 

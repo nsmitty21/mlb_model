@@ -1,6 +1,6 @@
-X THREAD — MLB — 2026-04-03
+X THREAD — MLB — 2026-04-04
 ============================================================
-Generated: 2026-04-03 13:08
+Generated: 2026-04-04 00:48
 Tweets in thread: 12
 ============================================================
 
@@ -14,7 +14,7 @@ HOW TO POST:
 ────────────────────────────────────────────────────────────
 TWEET 1 (post this first)  [162 chars]
 ────────────────────────────────────────────────────────────
-⚾ MLB model locked in — 14 plays across 10 games (2026-04-03).
+⚾ MLB model locked in — 15 plays across 10 games (2026-04-04).
 
 📋 All-time: 5W-7L (-5.2u)
 📅 April: 5W-7L (-5.2u)
@@ -23,35 +23,36 @@ TWEET 1 (post this first)  [162 chars]
 Full breakdown below 🧵👇
 
 ────────────────────────────────────────────────────────────
-TWEET 2  [161 chars]
+TWEET 2  [156 chars]
 ────────────────────────────────────────────────────────────
 ⚾ Game 1/10 — Philadelphia Phillies @ Colorado Rockies  (4:11 PM ET)
-🔱 A. Nola vs M. Lorenzen
+🔱 J. Luzardo vs TBD
 ────────────────────────────
 ML  Rockies (+168 FD)  ⭐⭐⭐  Edge:23.8%
 
 ────────────────────────────────────────────────────────────
-TWEET 3  [197 chars]
+TWEET 3  [205 chars]
 ────────────────────────────────────────────────────────────
 ⚾ Game 2/10 — Seattle Mariners @ Los Angeles Angels  (9:39 PM ET)
-🔱 B. Woo vs R. Detmers
+🔱 E. Hancock vs J. Kochanowicz
 ────────────────────────────
 ML  Angels (+136 FD)  ⭐⭐⭐  Edge:23.6%
 RL  Mariners +1.5 (+110 FD)  ⭐  Edge:8.5%
 
 ────────────────────────────────────────────────────────────
-TWEET 4  [159 chars]
+TWEET 4  [196 chars]
 ────────────────────────────────────────────────────────────
 ⚾ Game 3/10 — Milwaukee Brewers @ Kansas City Royals  (7:46 PM ET)
-🔱 C. Patrick vs L. Avila
+🔱 B. Sproat vs S. Lugo
 ────────────────────────────
+ML  Brewers (-110 FD)  ⭐⭐⭐  Edge:19.4%
 ML  Brewers (-110 FD)  ⭐⭐⭐  Edge:19.4%
 
 ────────────────────────────────────────────────────────────
-TWEET 5  [148 chars]
+TWEET 5  [147 chars]
 ────────────────────────────────────────────────────────────
 ⚾ Game 4/10 — Tampa Bay Rays @ Minnesota Twins  (4:11 PM ET)
-🔱 J. Boyle vs B. Ober
+🔱 S. Matz vs M. Abel
 ────────────────────────────
 ML  Twins (-110 DK)  ⭐⭐⭐  Edge:16.2%
 
@@ -59,15 +60,15 @@ ML  Twins (-110 DK)  ⭐⭐⭐  Edge:16.2%
 TWEET 6  [154 chars]
 ────────────────────────────────────────────────────────────
 ⚾ Game 5/10 — New York Mets @ San Francisco Giants  (10:16 PM ET)
-🔱 N. McLean vs T. Mahle
+🔱 C. Holmes vs L. Roupp
 ────────────────────────────
 ML  Mets (-130 FD)  ⭐⭐⭐  Edge:15.5%
 
 ────────────────────────────────────────────────────────────
-TWEET 7  [203 chars]
+TWEET 7  [200 chars]
 ────────────────────────────────────────────────────────────
 ⚾ Game 6/10 — St. Louis Cardinals @ Detroit Tigers  (1:11 PM ET)
-🔱 M. McGreevy vs F. Valdez
+🔱 D. May vs J. Flaherty
 ────────────────────────────
 RL  Tigers -1.5 (+115 DK)  ⭐⭐⭐  Edge:15.2%
 ML  Cardinals (+153 DK)  ⭐⭐  Edge:14.6%
@@ -76,15 +77,15 @@ ML  Cardinals (+153 DK)  ⭐⭐  Edge:14.6%
 TWEET 8  [159 chars]
 ────────────────────────────────────────────────────────────
 ⚾ Game 7/10 — Baltimore Orioles @ Pittsburgh Pirates  (4:13 PM ET)
-🔱 K. Bradish vs M. Keller
+🔱 S. Baz vs C. Mlodzinski
 ────────────────────────────
 ML  Pirates (+102 FD)  ⭐⭐  Edge:12.1%
 
 ────────────────────────────────────────────────────────────
-TWEET 9  [153 chars]
+TWEET 9  [157 chars]
 ────────────────────────────────────────────────────────────
 ⚾ Game 8/10 — San Diego Padres @ Boston Red Sox  (2:11 PM ET)
-🔱 M. King vs S. Gray
+🔱 R. Vasquez vs C. Early
 ────────────────────────────
 RL  Padres +1.5 (+168 FD)  ⭐⭐  Edge:10.2%
 
@@ -97,10 +98,10 @@ TWEET 10  [134 chars]
 ML  Athletics (-108 FD)  ⭐  Edge:9.7%
 
 ────────────────────────────────────────────────────────────
-TWEET 11  [223 chars]
+TWEET 11  [226 chars]
 ────────────────────────────────────────────────────────────
 ⚾ Game 10/10 — Toronto Blue Jays @ Chicago White Sox  (2:11 PM ET)
-🔱 D. Cease vs G. Taylor
+🔱 M. Fluharty vs G. Taylor
 ────────────────────────────
 ML  Sox (+168 FD)  ⭐  Edge:8.1%
 RL  Jays +1.5 (-118 FD)  ⭐  Edge:8.0%
@@ -109,7 +110,7 @@ TOT O 7.5 (+102 DK)  ⭐  Edge:7.6%
 ────────────────────────────────────────────────────────────
 TWEET 12 — FINAL (follow CTA)  [241 chars]
 ────────────────────────────────────────────────────────────
-That's the card — 14 picks today. Every bet gets graded, wins and losses both posted.
+That's the card — 15 picks today. Every bet gets graded, wins and losses both posted.
 
 Model shows the edge %, starting pitcher matchup, and book odds. If you want this every day → follow @iMightBetThat.
 

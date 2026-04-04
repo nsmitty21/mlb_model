@@ -1,0 +1,16 @@
+DATE,MATCHUP,BET_SIGNAL,VEGAS_SPREAD,SPREAD_EDGE,MODEL_PRED,PRED_MARGIN,BOOK,ODDS,UNITS,MARKET,GAME_TIME
+2026-04-04,Philadelphia Phillies @ Colorado Rockies,BET (COL) ML (+168) [HIGH CONFIDENCE],+168,+23.8%,59.7% (model) vs 35.9% (book),23.8,FANDUEL,+168,3,ML,4:11 PM ET
+2026-04-04,Seattle Mariners @ Los Angeles Angels,BET (LAA) ML (+136) [HIGH CONFIDENCE],+136,+23.6%,64.3% (model) vs 40.7% (book),23.6,FANDUEL,+136,3,ML,9:39 PM ET
+2026-04-04,Seattle Mariners @ Los Angeles Angels,BET (SEA) RL -1.5 (+110) [LOW CONFIDENCE],-1.5,+8.5%,54.0% (model) vs 45.6% (book),8.4,FANDUEL,+110,1,SPREAD,9:39 PM ET
+2026-04-04,Milwaukee Brewers @ Kansas City Royals,BET (MIL) ML (-110) [HIGH CONFIDENCE],-110,+19.4%,69.8% (model) vs 50.4% (book),19.4,FANDUEL,-110,3,ML,7:46 PM ET
+2026-04-04,Milwaukee Brewers @ Kansas City Royals,BET (MIL) ML (-110) [HIGH CONFIDENCE],-110,+19.4%,69.8% (model) vs 50.4% (book),19.4,FANDUEL,-110,3,ML,7:46 PM ET
+2026-04-04,Tampa Bay Rays @ Minnesota Twins,BET (MIN) ML (-110) [HIGH CONFIDENCE],-110,+16.2%,66.2% (model) vs 50.0% (book),16.2,DRAFTKINGS,-110,3,ML,4:11 PM ET
+2026-04-04,New York Mets @ San Francisco Giants,BET (NYM) ML (-130) [HIGH CONFIDENCE],-130,+15.5%,69.8% (model) vs 54.3% (book),15.5,FANDUEL,-130,3,ML,10:16 PM ET
+2026-04-04,St. Louis Cardinals @ Detroit Tigers,BET (DET) RL -1.5 (+115) [HIGH CONFIDENCE],-1.5,+15.2%,59.7% (model) vs 44.6% (book),15.1,DRAFTKINGS,+115,3,SPREAD,1:11 PM ET
+2026-04-04,St. Louis Cardinals @ Detroit Tigers,BET (STL) ML (+153) [MEDIUM CONFIDENCE],+153,+14.6%,52.4% (model) vs 37.8% (book),14.6,DRAFTKINGS,+153,2,ML,1:11 PM ET
+2026-04-04,Baltimore Orioles @ Pittsburgh Pirates,BET (PIT) ML (+102) [MEDIUM CONFIDENCE],+102,+12.1%,59.7% (model) vs 47.6% (book),12.1,FANDUEL,+102,2,ML,4:13 PM ET
+2026-04-04,San Diego Padres @ Boston Red Sox,BET (SDP) RL -1.5 (+168) [MEDIUM CONFIDENCE],-1.5,+10.2%,45.9% (model) vs 35.7% (book),10.2,FANDUEL,+168,2,SPREAD,2:11 PM ET
+2026-04-04,Houston Astros @ Athletics,BET (OAK) ML (-108) [LOW CONFIDENCE],-108,+9.7%,59.7% (model) vs 50.0% (book),9.7,FANDUEL,-108,1,ML,9:41 PM ET
+2026-04-04,Toronto Blue Jays @ Chicago White Sox,BET (CHW) ML (+168) [LOW CONFIDENCE],+168,+8.1%,44.0% (model) vs 35.9% (book),8.1,FANDUEL,+168,1,ML,2:11 PM ET
+2026-04-04,Toronto Blue Jays @ Chicago White Sox,BET (TOR) RL -1.5 (-118) [LOW CONFIDENCE],-1.5,+8.0%,59.7% (model) vs 51.7% (book),8.0,FANDUEL,-118,1,SPREAD,2:11 PM ET
+2026-04-04,Toronto Blue Jays @ Chicago White Sox,BET (CHW/TOR) OVER 7.5 (+102) [LOW CONFIDENCE],7.5,+7.6%,55.0% (model) vs 47.4% (book),7.6,DRAFTKINGS,+102,1,TOTAL,2:11 PM ET
