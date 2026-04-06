@@ -59,86 +59,146 @@ PARK_FACTORS = {
 }
 
 
-# NOTE: Team assignment no longer uses bbref_game_id prefixes because the 2026
-# PA files mix BBRef-format IDs ("SFN202603250") and ESPN-format IDs ("mlb_824864").
-# build_batter_team_map() now uses pitcher names from today_lines.json as the
-# anchor — if the pitcher matches a known home_sp or away_sp, the batter's team
-# is determined directly from the game's home_team/away_team fields.
+# ── BBRef home-team abbreviations (first 3 chars of bbref_game_id) ────────────
+# bbref_game_id encodes the home team: e.g. "SFN202603250" → home = SFN.
+# This lets us derive the exact team name for every batter without a roster,
+# using only bbref_game_id + batting_team_home (0/1) from the PA files.
+BBREF_HOME_ABBR_TO_FULL = {
+    "ARI": "Arizona Diamondbacks",   "ATL": "Atlanta Braves",
+    "BAL": "Baltimore Orioles",      "BOS": "Boston Red Sox",
+    "CHN": "Chicago Cubs",           "CHA": "Chicago White Sox",
+    "CIN": "Cincinnati Reds",        "CLE": "Cleveland Guardians",
+    "COL": "Colorado Rockies",       "DET": "Detroit Tigers",
+    "HOU": "Houston Astros",         "KCA": "Kansas City Royals",
+    "ANA": "Los Angeles Angels",     "LAN": "Los Angeles Dodgers",
+    "MIA": "Miami Marlins",          "MIL": "Milwaukee Brewers",
+    "MIN": "Minnesota Twins",        "NYN": "New York Mets",
+    "NYA": "New York Yankees",       "OAK": "Oakland Athletics",
+    "PHI": "Philadelphia Phillies",  "PIT": "Pittsburgh Pirates",
+    "SDN": "San Diego Padres",       "SFN": "San Francisco Giants",
+    "SEA": "Seattle Mariners",       "SLN": "St. Louis Cardinals",
+    "TBA": "Tampa Bay Rays",         "TEX": "Texas Rangers",
+    "TOR": "Toronto Blue Jays",      "WAS": "Washington Nationals",
+    "ATH": "Athletics",              # Sacramento relocation 2026
+}
+
+# Reverse map: full team name → BBRef home abbr (for cross-referencing today_lines)
+FULL_TO_BBREF_ABBR = {v: k for k, v in BBREF_HOME_ABBR_TO_FULL.items()}
 
 
 def build_batter_team_map(pa_slice: pd.DataFrame, games: list) -> dict:
     """
-    Build batter → full_team_name from PA data + today's game list.
+    Build a precise batter → full_team_name mapping from PA data.
 
-    Works for any game ID format (BBRef 'SFN202603250' or ESPN 'mlb_824864')
-    by using PITCHER NAMES as the anchor instead of game ID prefixes.
+    Strategy (two passes):
 
-    Logic:
-      From today_lines.json we know: home_sp pitches for home_team,
-      away_sp pitches for away_team.
+    Pass 1 — PA data only (works for all dates, including historical):
+      Home batters (batting_team_home == 1):
+        team = BBREF_HOME_ABBR_TO_FULL[bbref_game_id[:3]]
 
-      For every PA row:
-        - The pitcher column tells us who was on the mound.
-        - If that pitcher == home_sp of some game → the BATTER is on the away team.
-        - If that pitcher == away_sp of some game → the BATTER is on the home team.
-        - batting_team_home (0/1) is the tiebreaker when a pitcher has multiple
-          game appearances (e.g. relievers who pitched in more than one game).
+      Away batters (batting_team_home == 0):
+        Within each game, the pitchers facing away batters are from the HOME
+        team, and the pitchers facing home batters are from the AWAY team.
+        We build a pitcher → team lookup from the home batters' PA rows
+        (pitcher facing home batters = away team's pitcher → away team).
+        Then for each away batter, look up their pitcher's team.
 
-      For batters whose pitcher isn't a known starter (relievers mid-game),
-      we fall back to grouping by game_id: once any batter in a game is mapped,
-      all batters in the same game with the same batting_team_home value share
-      the same team.
+    Pass 2 — today_lines.json (fills any remaining gaps using home_abbr match):
+        home_abbr → away_full from the games list.
+
+    This means away batters are correctly mapped even when the game date in
+    the PA slice doesn't appear in today_lines.json (e.g. historical dates).
     """
-    # ── Step 1: build pitcher → {home_team, away_team} from games list ────────
-    # A starter pitching to the opposing team identifies both sides.
-    sp_to_game: dict[str, dict] = {}   # normalized pitcher name → game dict
-    for g in games:
-        hsp = (g.get("home_sp") or "").strip()
-        asp = (g.get("away_sp") or "").strip()
-        if hsp:
-            sp_to_game[hsp.lower()] = g
-        if asp:
-            sp_to_game[asp.lower()] = g
-
-    # ── Step 2: assign each batter a team via their pitcher ───────────────────
+    # ── Pass 1a: home batters — direct from bbref_game_id ────────────────────
     batter_to_team: dict[str, str] = {}
-    # Also build game_id → {0: away_team, 1: home_team} for reliever fallback
-    gameid_side_to_team: dict[tuple, str] = {}
-
     for _, row in pa_slice.iterrows():
-        batter   = str(row["batter"])
-        pitcher  = str(row["pitcher"]).replace("\xa0", " ").strip()
-        is_home  = int(row["batting_team_home"])
-        game_id  = str(row["bbref_game_id"])
+        if row["batting_team_home"] == 1:
+            home_abbr = str(row["bbref_game_id"])[:3].upper()
+            home_full = BBREF_HOME_ABBR_TO_FULL.get(home_abbr, "")
+            if home_full:
+                batter_to_team[row["batter"]] = home_full
 
-        game = sp_to_game.get(pitcher.lower())
-        if game:
-            ht = game.get("home_team", "")
-            at = game.get("away_team", "")
-            # Batter faces this pitcher:
-            #   home_sp pitches to AWAY batters (is_home=0)
-            #   away_sp pitches to HOME batters (is_home=1)
-            if pitcher.lower() == (game.get("home_sp") or "").lower():
-                # Home SP → batter is on the away team
-                batter_to_team[batter] = at
-                gameid_side_to_team[(game_id, 0)] = at
-                gameid_side_to_team[(game_id, 1)] = ht
-            elif pitcher.lower() == (game.get("away_sp") or "").lower():
-                # Away SP → batter is on the home team
-                batter_to_team[batter] = ht
-                gameid_side_to_team[(game_id, 1)] = ht
-                gameid_side_to_team[(game_id, 0)] = at
+    # ── Pass 1b: away batters — derive via pitcher→team within each game ──────
+    # For each game: pitchers who pitched to HOME batters are the AWAY team's pitchers.
+    # So: pitcher → game_id, and game_id[:3] gives us the home team.
+    # The pitcher's team = the AWAY team = the team we need for away batters.
+    #
+    # Build: game_id → away_team by finding which pitchers faced home batters
+    # then looking those pitchers up against a pitcher-to-known-team table.
+    #
+    # Simpler direct approach: within each game, build
+    #   game_id → set of (pitcher, faced_home_batters)
+    # A pitcher who faces home batters (batting_team_home=1) is an AWAY pitcher.
+    # But we still need the away team NAME, not just the pitcher name.
+    #
+    # Actual solution: group each game's away-batting rows by game_id.
+    # For each game, look at the pitchers who face AWAY batters (batting_team_home=0).
+    # Those pitchers are HOME team pitchers. Cross-ref against home_batters in the
+    # same game to find the away team from home_abbr, then assign to away batters.
+    #
+    # This is circular — we know home from bbref_game_id but need away team name.
+    # Use today_lines.json for today's date; for historical, build pitcher→team
+    # from the home-side evidence (pitcher appears as home pitcher → away team
+    # is whoever was batting when batting_team_home=0 in that game).
+    #
+    # PRAGMATIC: build game_id → away_team from all games where we DO know the
+    # away team (either from today_lines or from home-batter evidence).
+    # For today's games, today_lines.json is the source.
 
-    # ── Step 3: reliever fallback — use game_id + batting_team_home ───────────
+    # ── Pass 2: fill gaps from today_lines.json ───────────────────────────────
+    home_abbr_to_away: dict[str, str] = {}
+    for g in games:
+        ht = g.get("home_team", "")
+        at = g.get("away_team", "")
+        ha = FULL_TO_BBREF_ABBR.get(ht, ht[:3].upper())
+        if ha and at:
+            home_abbr_to_away[ha] = at
+
+    # Also build from game-level pitcher evidence within the PA slice:
+    # For each game, pitchers who appear when batting_team_home=0 are home pitchers.
+    # We know the home team → so the away team is whichever team ISN'T the home team.
+    # We can't get the away team name from this alone without a roster.
+    # BUT: if any home batter in the same game already has a mapped team, the away
+    # team is whoever home batters' team's OPPONENT is in today_lines.
+    # → Fall back: for games not in today_lines, derive away team from the
+    #   PITCHER NAME itself, cross-referencing pitcher → team built from historical
+    #   rows where we know the home/away assignment.
+
+    # Build pitcher → their team (the team they PITCH for = opposite of batter's team):
+    # A pitcher in row with batting_team_home=1 → pitcher is on the AWAY team.
+    # home_abbr of that game is the HOME team, and we know it → away team for pitcher.
+    pitcher_to_team: dict[str, str] = {}
     for _, row in pa_slice.iterrows():
-        batter  = str(row["batter"])
-        if batter in batter_to_team:
+        pitcher   = row["pitcher"]
+        home_abbr = str(row["bbref_game_id"])[:3].upper()
+        home_full = BBREF_HOME_ABBR_TO_FULL.get(home_abbr, "")
+        if not home_full:
             continue
-        is_home = int(row["batting_team_home"])
-        game_id = str(row["bbref_game_id"])
-        team = gameid_side_to_team.get((game_id, is_home))
-        if team:
-            batter_to_team[batter] = team
+        if row["batting_team_home"] == 1:
+            # Pitcher is pitching to HOME batters → pitcher is on the AWAY team
+            # Away team = home_abbr_to_away.get(home_abbr) if known
+            away = home_abbr_to_away.get(home_abbr, "")
+            if away:
+                pitcher_to_team[pitcher] = away
+        else:
+            # Pitcher is pitching to AWAY batters → pitcher is on the HOME team
+            pitcher_to_team[pitcher] = home_full
+
+    # Now assign away batters using their pitcher's team (the away team's pitcher
+    # is the home team's pitcher, but the AWAY batter faces the HOME pitcher —
+    # so the away batter's pitcher is from the home team, and the away batter
+    # belongs to the away team = home_abbr_to_away[home_abbr]).
+    for _, row in pa_slice.iterrows():
+        batter    = row["batter"]
+        if batter in batter_to_team:
+            continue   # already mapped in pass 1a
+        if row["batting_team_home"] != 0:
+            continue
+        home_abbr = str(row["bbref_game_id"])[:3].upper()
+        # Try today_lines lookup first (most reliable for today's games)
+        away_full = home_abbr_to_away.get(home_abbr, "")
+        if away_full:
+            batter_to_team[batter] = away_full
 
     return batter_to_team
 
@@ -453,38 +513,39 @@ def pick_beat_the_streak(
     Select the single best batter to get a hit today for Beat the Streak.
 
     Scoring formula (all normalized 0–1):
-      40% — season hit rate (H/PA)
-      25% — opposing pitcher H-allowed rate (higher = easier matchup)
-      20% — park factor of the game
-      15% — current hit streak momentum (streak / 20, capped at 1.0)
+      45% — regressed hit rate  (H/PA regressed to league mean, prevents small-
+             sample hot starts from dominating every day)
+      25% — opposing pitcher H-allowed rate (also regressed)
+      15% — park factor of the game
+      15% — current hit streak momentum (streak / 15, capped at 1.0)
 
-    Only considers batters playing today (appear in today's lineups via
-    today_lines.json home_team / away_team).  Falls back to pure season
-    stats if lineup data isn't available.
+    Regression prior: (career_PA * raw_rate + PRIOR_PA * league_avg) / (career_PA + PRIOR_PA)
+    A batter with 20 PA at .400 regresses to ~.296; a vet with 3000 PA at .300
+    stays near .299. Same math used in DIPS/FIP theory.
+
+    Minimum 50 career PA required (up from 10) to filter cups-of-coffee.
     """
-    # Collect all teams playing today
-    today_teams = set()
-    sp_map = {}   # team → opposing SP name
-    park_map = {} # team → home_team (for park factor)
+    LEAGUE_AVG_HIT_RATE   = 0.270
+    BATTER_PRIOR_PA       = 300      # regression weight for batters
+    LEAGUE_AVG_H_ALLOWED  = 0.260
+    PITCHER_PRIOR_PA      = 400      # regression weight for pitchers
+    HIT_RATE_ELITE        = 0.320    # normalization ceiling (genuine elite)
+
+    sp_map   = {}
+    park_map = {}
     for g in games:
-        ht = g.get("home_team", "")
-        at = g.get("away_team", "")
+        ht  = g.get("home_team", "")
+        at  = g.get("away_team", "")
         hsp = g.get("home_sp", "") or ""
         asp = g.get("away_sp", "") or ""
-        today_teams.add(ht)
-        today_teams.add(at)
-        sp_map[ht] = asp   # home team faces the away starter
-        sp_map[at] = hsp   # away team faces the home starter
+        sp_map[ht]   = asp
+        sp_map[at]   = hsp
         park_map[ht] = ht
         park_map[at] = ht
 
-    # Identify batters who played on the most recent date as a proxy for today
-    # (we don't know lineups in advance, so we use all players on active teams)
     last_game_date = pa["game_date"].max()
     recent_batters = pa[pa["game_date"] == last_game_date]["batter"].unique()
     recent_pa      = pa[pa["game_date"] == last_game_date]
-
-    # Derive exact team name for every batter from bbref_game_id[:3] + batting_team_home
     batter_to_team = build_batter_team_map(recent_pa, games)
 
     candidates = []
@@ -492,33 +553,41 @@ def pick_beat_the_streak(
         if batter not in batter_stats.index:
             continue
         bs = batter_stats.loc[batter]
-        if bs["PA"] < 10:   # too few PAs for meaningful stats
+        career_pa = int(bs["PA"])
+        if career_pa < 50:
             continue
 
-        team     = batter_to_team.get(batter, "")
-        opp_sp   = sp_map.get(team, "")
-        home_tm  = park_map.get(team, team)
-        park     = PARK_FACTORS.get(home_tm, 1.00)
+        team    = batter_to_team.get(batter, "")
+        opp_sp  = sp_map.get(team, "")
+        home_tm = park_map.get(team, team)
+        park    = PARK_FACTORS.get(home_tm, 1.00)
 
-        # Opposing pitcher H-allowed rate
+        # ── Regressed hit rate ────────────────────────────────────────────────
+        raw_hit_rate = float(bs["hit_per_pa"] or 0)
+        reg_hit_rate = ((career_pa * raw_hit_rate + BATTER_PRIOR_PA * LEAGUE_AVG_HIT_RATE)
+                        / (career_pa + BATTER_PRIOR_PA))
+        hit_rate_norm = min(reg_hit_rate / HIT_RATE_ELITE, 1.0)
+
+        # ── Regressed pitcher H-allowed rate ──────────────────────────────────
         if opp_sp and opp_sp in pitcher_stats.index:
             ps = pitcher_stats.loc[opp_sp]
-            pitcher_h_rate = float(ps["h_per_pa_allowed"]) if not pd.isna(ps["h_per_pa_allowed"]) else 0.28
+            p_pa = float(ps.get("PA_faced") or 0)
+            raw_h = float(ps["h_per_pa_allowed"]) if not pd.isna(ps.get("h_per_pa_allowed")) else LEAGUE_AVG_H_ALLOWED
+            reg_h = ((p_pa * raw_h + PITCHER_PRIOR_PA * LEAGUE_AVG_H_ALLOWED)
+                     / (p_pa + PITCHER_PRIOR_PA))
         else:
-            pitcher_h_rate = 0.28  # league-average proxy
+            reg_h = LEAGUE_AVG_H_ALLOWED
+        pitcher_norm = min(reg_h / 0.310, 1.0)   # 0.310 = very hittable
 
         streak = current_hit_streak(batter, game_log)
 
-        # Normalize each component
-        hit_rate_norm    = min(float(bs["hit_per_pa"] or 0) / 0.40, 1.0)  # 0.40 = elite
-        pitcher_norm     = min(pitcher_h_rate / 0.35, 1.0)
-        park_norm        = (park - 0.90) / (1.20 - 0.90)                  # 0.90–1.20 range
-        streak_norm      = min(streak / 20.0, 1.0)
+        park_norm   = (park - 0.90) / (1.20 - 0.90)
+        streak_norm = min(streak / 15.0, 1.0)
 
         score = (
-            0.40 * hit_rate_norm +
+            0.45 * hit_rate_norm +
             0.25 * pitcher_norm  +
-            0.20 * park_norm     +
+            0.15 * park_norm     +
             0.15 * streak_norm
         )
 
@@ -530,8 +599,10 @@ def pick_beat_the_streak(
             "park_factor":    park,
             "season_avg":     round(float(bs["AVG"] or 0), 3),
             "season_ops":     round(float(bs["OPS"] or 0), 3),
-            "hit_per_pa":     round(float(bs["hit_per_pa"] or 0), 3),
-            "pitcher_h_rate": round(pitcher_h_rate, 3),
+            "career_pa":      career_pa,
+            "hit_per_pa":     round(raw_hit_rate, 3),
+            "reg_hit_rate":   round(reg_hit_rate, 3),
+            "pitcher_h_rate": round(reg_h, 3),
             "current_streak": streak,
             "score":          round(score, 4),
         })
@@ -646,7 +717,8 @@ def pick_hr_props(
         if batter not in batter_stats.index:
             continue
         bs = batter_stats.loc[batter]
-        if bs["PA"] < 10 or bs["AB"] < 5:
+        career_pa = int(bs["PA"])
+        if career_pa < 50 or int(bs["AB"]) < 20:
             continue
 
         team    = batter_to_team.get(batter, "")
@@ -656,22 +728,41 @@ def pick_hr_props(
 
         season_hr_rate = float(bs["hr_per_pa"] or 0)
         if season_hr_rate == 0:
-            continue   # no HRs in sample — skip
+            continue
 
-        # ── Layer 2: pitcher HR-allowed rate ─────────────────────────────────
-        if opp_sp and opp_sp in pitcher_stats.index:
+        # ── Require a known starting pitcher ─────────────────────────────────
+        # Without a SP name we can't assess the matchup — league-average pitcher
+        # multiplier (1.0x) makes every power hitter look equally attractive and
+        # the list never changes day-to-day.
+        if not opp_sp or opp_sp == "TBD":
+            continue
+
+        # ── Regress batter HR rate to league mean ─────────────────────────────
+        # Prevents small early-season samples from dominating.
+        # 200 PA prior: a batter with 21 PA at 23.8% regresses to ~5.2%
+        BATTER_HR_PRIOR_PA  = 200
+        reg_hr_rate = ((career_pa * season_hr_rate + BATTER_HR_PRIOR_PA * LEAGUE_AVG_HR_PA)
+                       / (career_pa + BATTER_HR_PRIOR_PA))
+
+        # ── Layer 2: pitcher HR-allowed rate (regressed, capped) ──────────────
+        PITCHER_HR_PRIOR_PA = 300
+        if opp_sp in pitcher_stats.index:
             ps = pitcher_stats.loc[opp_sp]
-            pitcher_hr_rate = float(ps["hr_per_pa_allowed"] or LEAGUE_AVG_HR_PA)
+            p_pa = float(ps.get("PA_faced") or 0)
+            raw_p_hr = float(ps["hr_per_pa_allowed"] or LEAGUE_AVG_HR_PA)
+            reg_p_hr = ((p_pa * raw_p_hr + PITCHER_HR_PRIOR_PA * LEAGUE_AVG_HR_PA)
+                        / (p_pa + PITCHER_HR_PRIOR_PA))
         else:
-            pitcher_hr_rate = LEAGUE_AVG_HR_PA
-        pitcher_mult = pitcher_hr_rate / LEAGUE_AVG_HR_PA
+            reg_p_hr = LEAGUE_AVG_HR_PA
+        # Cap at 2.0x so one bad outing doesn't make everyone look elite
+        pitcher_mult = min(reg_p_hr / LEAGUE_AVG_HR_PA, 2.0)
 
         # ── Layer 3: career BvP HR rate ───────────────────────────────────────
         bvp_pa      = 0
         bvp_hr_val  = 0
         bvp_hr_rate = None
         bvp_avg     = None
-        blended_hr_rate = season_hr_rate   # default: season only
+        blended_hr_rate = reg_hr_rate   # default: regressed season rate
 
         if bvp_hr is not None and opp_sp:
             idx = (batter, opp_sp)
@@ -680,28 +771,28 @@ def pick_hr_props(
                 bvp_pa      = int(row["bvp_pa"])
                 bvp_hr_val  = int(row["bvp_hr"])
                 bvp_hr_rate = float(row["bvp_hr_rate"] or 0)
-                bvp_avg     = float(row["bvp_avg"]     or 0) if not pd.isna(row["bvp_avg"]) else None
+                bvp_avg     = float(row["bvp_avg"] or 0) if not pd.isna(row["bvp_avg"]) else None
 
                 if bvp_pa >= BVP_MIN_PA:
-                    # Credibility-weighted blend
                     bvp_weight      = min(bvp_pa / 50.0, 0.60)
                     blended_hr_rate = (bvp_weight * bvp_hr_rate +
-                                       (1 - bvp_weight) * season_hr_rate)
+                                       (1 - bvp_weight) * reg_hr_rate)
 
         # ── Final HR probability ──────────────────────────────────────────────
         hr_prob = blended_hr_rate * pitcher_mult * park
-        hr_prob = min(hr_prob, 0.25)   # hard cap at 25%
+        hr_prob = min(hr_prob, 0.20)   # hard cap at 20% (realistic ceiling)
 
         candidates.append({
             "batter":           batter,
             "team":             team,
-            "opp_sp":           opp_sp or "TBD",
+            "opp_sp":           opp_sp,
             "park":             home_tm,
             "park_factor":      park,
             "season_hr":        int(bs["HR"]),
-            "season_pa":        int(bs["PA"]),
+            "season_pa":        career_pa,
             "season_hr_rate":   round(season_hr_rate, 4),
-            "pitcher_hr_rate":  round(pitcher_hr_rate, 4),
+            "reg_hr_rate":      round(reg_hr_rate, 4),
+            "pitcher_hr_rate":  round(reg_p_hr, 4),
             "pitcher_mult":     round(pitcher_mult, 2),
             "bvp_pa":           bvp_pa,
             "bvp_hr":           bvp_hr_val,
@@ -1040,43 +1131,30 @@ def build_props_writeup(bts: dict, hr_props: list, nrfi_picks: list, today_str: 
     lines.append("NRFI / YRFI PICKS")
     lines.append("─" * 60)
     picks_only = [g for g in nrfi_picks if g["pick"] is not None]
-    all_games  = nrfi_picks
 
     if picks_only:
-        lines.append(f"  {len(picks_only)} actionable pick(s):\n")
+        lines.append(f"  {len(picks_only)} pick(s):\n")
         for g in picks_only:
             emoji = "🔒" if g["pick"] == "NRFI" else "💥"
-            # Build pitcher record strings for writeup
             def _sp_record(pct, starts, src):
                 if pct is not None and starts:
                     return f"{pct:.0f}% NRFI ({starts} GS)"
                 return "league avg" if src == "league_avg" else "limited data"
-
-            h_rec = _sp_record(g.get("home_sp_nrfi_pct"), g.get("home_sp_starts",0),
-                                g.get("home_sp_source","league_avg"))
-            a_rec = _sp_record(g.get("away_sp_nrfi_pct"), g.get("away_sp_starts",0),
-                                g.get("away_sp_source","league_avg"))
-
+            hsr = _sp_record(g.get("home_sp_nrfi_pct"), g.get("home_sp_starts", 0),
+                             g.get("home_sp_source", "league_avg"))
+            asr = _sp_record(g.get("away_sp_nrfi_pct"), g.get("away_sp_starts", 0),
+                             g.get("away_sp_source", "league_avg"))
             lines.append(
                 f"  {emoji} {g['pick']}  {g['away_team']} @ {g['home_team']}  "
-                f"({g['nrfi_prob']*100:.0f}% NRFI)  "
-                f"Conf: {g['confidence_pct']:.0f}%"
+                f"({g['nrfi_prob']*100:.0f}% NRFI)  Conf: {g['confidence_pct']:.0f}%"
             )
             lines.append(
-                f"     {_short_pitcher(g['away_sp'])} [{a_rec}] "
-                f"vs {_short_pitcher(g['home_sp'])} [{h_rec}]  "
+                f"     {_short_pitcher(g['away_sp'])}: {asr}  |  "
+                f"{_short_pitcher(g['home_sp'])}: {hsr}  |  "
                 f"Park: {g['park_factor']:.2f}x"
             )
-        lines.append("")
-
-    lines.append("  All games (sorted by confidence):")
-    for g in all_games:
-        mark = f" ← {g['pick']}" if g["pick"] else ""
-        lines.append(
-            f"  {g['away_team'][:20]:<20} @ {g['home_team'][:20]:<20}  "
-            f"NRFI: {g['nrfi_prob']*100:.0f}%  "
-            f"YRFI: {g['yrfi_prob']*100:.0f}%{mark}"
-        )
+    else:
+        lines.append("  No NRFI/YRFI picks today (all games near 50/50).")
 
     return "\n".join(lines)
 

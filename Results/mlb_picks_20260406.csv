@@ -1,0 +1,18 @@
+DATE,MATCHUP,BET_SIGNAL,VEGAS_SPREAD,SPREAD_EDGE,MODEL_PRED,PRED_MARGIN,BOOK,ODDS,UNITS,MARKET,GAME_TIME
+2026-04-06,Cincinnati Reds @ Miami Marlins,BET (CIN) RL -1.5 (+184) [HIGH CONFIDENCE],-1.5,+30.8%,64.5% (model) vs 33.7% (book),30.8,FANDUEL,+184,3,SPREAD,6:41 PM ET
+2026-04-06,Cincinnati Reds @ Miami Marlins,BET (MIA) ML (-122) [LOW CONFIDENCE],-122,+9.4%,62.2% (model) vs 52.8% (book),9.4,FANDUEL,-122,1,ML,6:41 PM ET
+2026-04-06,Chicago Cubs @ Tampa Bay Rays,BET (CHC) RL -1.5 (+152) [HIGH CONFIDENCE],-1.5,+26.5%,64.5% (model) vs 38.0% (book),26.5,FANDUEL,+152,3,SPREAD,4:11 PM ET
+2026-04-06,Chicago Cubs @ Tampa Bay Rays,BET (CHC) ML (-106) [LOW CONFIDENCE],-106,+7.7%,57.2% (model) vs 49.5% (book),7.7,FANDUEL,-106,1,ML,4:11 PM ET
+2026-04-06,Kansas City Royals @ Cleveland Guardians,BET (KCR) RL -1.5 (+176) [HIGH CONFIDENCE],-1.5,+24.4%,59.1% (model) vs 34.7% (book),24.4,FANDUEL,+176,3,SPREAD,6:11 PM ET
+2026-04-06,Seattle Mariners @ Texas Rangers,BET (SEA) RL -1.5 (+158) [HIGH CONFIDENCE],-1.5,+22.0%,59.1% (model) vs 37.1% (book),22.0,FANDUEL,+158,3,SPREAD,8:06 PM ET
+2026-04-06,Seattle Mariners @ Texas Rangers,BET (TEX) ML (-112) [LOW CONFIDENCE],-112,+8.8%,59.7% (model) vs 50.9% (book),8.8,FANDUEL,-112,1,ML,8:06 PM ET
+2026-04-06,Atlanta Braves @ Los Angeles Angels,BET (ATL) RL -1.5 (+112) [HIGH CONFIDENCE],-1.5,+19.4%,64.5% (model) vs 45.2% (book),19.3,FANDUEL,+112,3,SPREAD,9:39 PM ET
+2026-04-06,Baltimore Orioles @ Chicago White Sox,BET (CHW) ML (+120) [HIGH CONFIDENCE],+120,+18.6%,62.2% (model) vs 43.6% (book),18.6,FANDUEL,+120,3,ML,7:41 PM ET
+2026-04-06,Baltimore Orioles @ Chicago White Sox,BET (BAL) RL -1.5 (+109) [MEDIUM CONFIDENCE],-1.5,+13.2%,59.1% (model) vs 45.8% (book),13.3,DRAFTKINGS,+109,2,SPREAD,7:41 PM ET
+2026-04-06,Milwaukee Brewers @ Boston Red Sox,BET (MIL) ML (-108) [HIGH CONFIDENCE],-108,+17.9%,67.9% (model) vs 50.0% (book),17.9,FANDUEL,-108,3,ML,6:46 PM ET
+2026-04-06,St. Louis Cardinals @ Washington Nationals,BET (STL) RL -1.5 (+155) [HIGH CONFIDENCE],-1.5,+16.5%,54.0% (model) vs 37.5% (book),16.5,FANDUEL,+155,3,SPREAD,6:46 PM ET
+2026-04-06,St. Louis Cardinals @ Washington Nationals,BET (WSN) ML (-105) [MEDIUM CONFIDENCE],-105,+10.8%,59.7% (model) vs 48.9% (book),10.8,DRAFTKINGS,-105,2,ML,6:46 PM ET
+2026-04-06,Houston Astros @ Colorado Rockies,BET (COL) ML (+184) [MEDIUM CONFIDENCE],+184,+13.9%,47.6% (model) vs 33.7% (book),13.9,DRAFTKINGS,+184,2,ML,8:41 PM ET
+2026-04-06,Houston Astros @ Colorado Rockies,BET (HOU) RL -1.5 (-122) [MEDIUM CONFIDENCE],-1.5,+11.4%,64.5% (model) vs 53.1% (book),11.4,DRAFTKINGS,-122,2,SPREAD,8:41 PM ET
+2026-04-06,Detroit Tigers @ Minnesota Twins,BET (MIN) ML (-120) [MEDIUM CONFIDENCE],-120,+10.1%,62.2% (model) vs 52.2% (book),10.0,DRAFTKINGS,-120,2,ML,7:41 PM ET
+2026-04-06,Detroit Tigers @ Minnesota Twins,BET (DET) RL +1.5 (+166) [LOW CONFIDENCE],1.5,+8.1%,59.7% (model) vs 51.6% (book),8.1,DRAFTKINGS,+166,1,SPREAD,7:41 PM ET

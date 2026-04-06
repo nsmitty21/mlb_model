@@ -1,0 +1,17 @@
+DATE,MATCHUP,BET_SIGNAL,VEGAS_SPREAD,SPREAD_EDGE,MODEL_PRED,PRED_MARGIN,BOOK,ODDS,UNITS,MARKET,GAME_TIME
+2026-04-05,Milwaukee Brewers @ Kansas City Royals,BET (MIL) ML (+108) [HIGH CONFIDENCE],+108,+23.5%,69.8% (model) vs 46.3% (book),23.5,FANDUEL,+108,3,ML,2:11 PM ET
+2026-04-05,Seattle Mariners @ Los Angeles Angels,BET (LAA) ML (+141) [HIGH CONFIDENCE],+141,+22.6%,62.2% (model) vs 39.7% (book),22.5,DRAFTKINGS,+141,3,ML,4:08 PM ET
+2026-04-05,New York Mets @ San Francisco Giants,BET (NYM) ML (+102) [HIGH CONFIDENCE],+102,+22.2%,69.8% (model) vs 47.6% (book),22.2,FANDUEL,+102,3,ML,4:06 PM ET
+2026-04-05,Chicago Cubs @ Cleveland Guardians,BET (CHC) RL -1.5 (+129) [HIGH CONFIDENCE],-1.5,+21.7%,64.5% (model) vs 42.8% (book),21.7,DRAFTKINGS,+129,3,SPREAD,1:11 PM ET
+2026-04-05,Chicago Cubs @ Cleveland Guardians,BET (CHC) RL -1.5 (+129) [HIGH CONFIDENCE],-1.5,+21.7%,64.5% (model) vs 42.8% (book),21.7,DRAFTKINGS,+129,3,SPREAD,1:11 PM ET
+2026-04-05,St. Louis Cardinals @ Detroit Tigers,BET (DET) RL -1.5 (+149) [HIGH CONFIDENCE],-1.5,+21.2%,59.7% (model) vs 38.6% (book),21.1,DRAFTKINGS,+149,3,SPREAD,7:21 PM ET
+2026-04-05,Cincinnati Reds @ Texas Rangers,BET (CIN) RL -1.5 (+164) [HIGH CONFIDENCE],-1.5,+17.8%,54.0% (model) vs 36.2% (book),17.8,FANDUEL,+164,3,SPREAD,2:36 PM ET
+2026-04-05,Cincinnati Reds @ Texas Rangers,BET (TEX) ML (-118) [LOW CONFIDENCE],-118,+7.7%,59.7% (model) vs 52.0% (book),7.7,FANDUEL,-118,1,ML,2:36 PM ET
+2026-04-05,Tampa Bay Rays @ Minnesota Twins,BET (MIN) ML (-115) [HIGH CONFIDENCE],-115,+15.1%,66.2% (model) vs 51.1% (book),15.1,DRAFTKINGS,-115,3,ML,2:11 PM ET
+2026-04-05,Toronto Blue Jays @ Chicago White Sox,BET (TOR) RL -1.5 (+113) [MEDIUM CONFIDENCE],-1.5,+14.0%,59.1% (model) vs 45.1% (book),14.0,DRAFTKINGS,+113,2,SPREAD,2:11 PM ET
+2026-04-05,Houston Astros @ Athletics,BET (OAK) ML (+104) [MEDIUM CONFIDENCE],+104,+12.9%,59.7% (model) vs 46.8% (book),12.9,DRAFTKINGS,+104,2,ML,4:06 PM ET
+2026-04-05,San Diego Padres @ Boston Red Sox,BET (BOS) RL -1.5 (+129) [MEDIUM CONFIDENCE],-1.5,+12.3%,54.1% (model) vs 41.9% (book),12.2,DRAFTKINGS,+129,2,SPREAD,1:36 PM ET
+2026-04-05,Los Angeles Dodgers @ Washington Nationals,BET (WSN) ML (+179) [LOW CONFIDENCE],+179,+8.5%,42.8% (model) vs 34.3% (book),8.5,DRAFTKINGS,+179,1,ML,1:36 PM ET
+2026-04-05,Philadelphia Phillies @ Colorado Rockies,BET (COL) ML (+144) [LOW CONFIDENCE],+144,+8.4%,47.6% (model) vs 39.2% (book),8.4,DRAFTKINGS,+144,1,ML,3:11 PM ET
+2026-04-05,Miami Marlins @ New York Yankees,BET (MIA) ML (+225) [LOW CONFIDENCE],+225,+8.2%,37.8% (model) vs 29.6% (book),8.2,FANDUEL,+225,1,ML,1:36 PM ET
+2026-04-05,Baltimore Orioles @ Pittsburgh Pirates,BET (PIT) ML (-120) [LOW CONFIDENCE],-120,+7.2%,59.7% (model) vs 52.4% (book),7.3,FANDUEL,-120,1,ML,1:36 PM ET

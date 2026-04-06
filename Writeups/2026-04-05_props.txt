@@ -1,0 +1,63 @@
+MLB PROPS — 2026-04-05
+============================================================
+Generated: 2026-04-05 00:57
+
+────────────────────────────────────────────────────────────
+BEAT THE STREAK
+────────────────────────────────────────────────────────────
+🎯 Pick: Justin Crawford ()
+   vs TBD @ 
+   Season: .412 AVG | OPS 0.856 | Hit rate 38.9%
+   Pitcher H-allowed: 28.0%  Park: 1.00x
+   Current personal streak: 1 games
+   BTS streak this season:  0 games (best: 0)
+
+  Top 5 candidates:
+  1. Justin Crawford ()  Score:0.663  Avg:0.412  Streak:1
+  2. Sal Stewart ()  Score:0.649  Avg:0.377  Streak:5
+  3. Jonathan Aranda ()  Score:0.594  Avg:0.280  Streak:11
+  4. Bobby Witt Jr. ()  Score:0.592  Avg:0.289  Streak:8
+  5. Xavier Edwards ()  Score:0.588  Avg:0.299  Streak:7
+
+────────────────────────────────────────────────────────────
+HOME RUN PROPS
+────────────────────────────────────────────────────────────
+  1. Munetaka Murakami ()  HR%: 23.8%  vs TBD
+     Season: 5 HR / 21 PA  (23.81% rate)  Park: 1.00x  Pitcher mult: 1.00x
+  2. Carson Benge ()  HR%: 13.6%  vs TBD
+     Season: 3 HR / 22 PA  (13.64% rate)  Park: 1.00x  Pitcher mult: 1.00x
+  3. JJ Wetherholt ()  HR%: 12.0%  vs TBD
+     Season: 3 HR / 25 PA  (12.00% rate)  Park: 1.00x  Pitcher mult: 1.00x
+  4. Max Muncy (Chicago White Sox)  HR%: 8.6%  vs E. Lauer
+     Season: 144 HR / 2834 PA  (5.08% rate)  Park: 0.97x  Pitcher mult: 1.22x
+     Career H2H: 2 HR / 18 PA  (11.11% rate)  AVG .267  ← blended into score
+  5. Nick Kurtz (Chicago White Sox)  HR%: 8.4%  vs E. Lauer
+     Season: 36 HR / 506 PA  (7.11% rate)  Park: 0.97x  Pitcher mult: 1.22x
+     Career H2H: 0 HR / 3 PA  (< 10 PA — season rate used)
+
+────────────────────────────────────────────────────────────
+NRFI / YRFI PICKS
+────────────────────────────────────────────────────────────
+  1 actionable pick(s):
+
+  💥 YRFI  San Diego Padres @ Boston Red Sox  (42% NRFI)  Conf: 16%
+     W. Buehler [62% NRFI (92 GS)] vs R. Suarez [league avg]  Park: 1.08x
+
+  All games (sorted by confidence):
+  New York Mets        @ San Francisco Giants  NRFI: 60%  YRFI: 40%
+  San Diego Padres     @ Boston Red Sox        NRFI: 42%  YRFI: 58% ← YRFI
+  Baltimore Orioles    @ Pittsburgh Pirates    NRFI: 58%  YRFI: 42%
+  Cincinnati Reds      @ Texas Rangers         NRFI: 58%  YRFI: 42%
+  Milwaukee Brewers    @ Kansas City Royals    NRFI: 43%  YRFI: 57%
+  Philadelphia Phillie @ Colorado Rockies      NRFI: 44%  YRFI: 56%
+  Tampa Bay Rays       @ Minnesota Twins       NRFI: 46%  YRFI: 54%
+  Toronto Blue Jays    @ Chicago White Sox     NRFI: 47%  YRFI: 53%
+  Houston Astros       @ Athletics             NRFI: 53%  YRFI: 47%
+  Los Angeles Dodgers  @ Washington Nationals  NRFI: 53%  YRFI: 47%
+  St. Louis Cardinals  @ Detroit Tigers        NRFI: 52%  YRFI: 48%
+  Miami Marlins        @ New York Yankees      NRFI: 48%  YRFI: 52%
+  Seattle Mariners     @ Los Angeles Angels    NRFI: 49%  YRFI: 51%
+  Atlanta Braves       @ Arizona Diamondbacks  NRFI: 49%  YRFI: 51%
+  Chicago Cubs         @ Cleveland Guardians   NRFI: 49%  YRFI: 51%
+  Chicago Cubs         @ Cleveland Guardians   NRFI: 49%  YRFI: 51%
+  Chicago Cubs         @ Cleveland Guardians   NRFI: 49%  YRFI: 51%
