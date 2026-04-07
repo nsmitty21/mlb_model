@@ -456,10 +456,37 @@ def append_results(graded_df: pd.DataFrame, yesterday: str):
         else:
             combined = graded_df.copy()
 
-        combined.to_csv(results_path, index=False)
-        wins  = (combined["RESULT"] == "WIN").sum()
-        losses= (combined["RESULT"] == "LOSS").sum()
-        pnl   = combined["PNL"].sum()
+        # Write with retry — file may be locked by Excel or OneDrive sync.
+        import time as _time
+        saved = False
+        for attempt in range(3):
+            try:
+                combined.to_csv(results_path, index=False)
+                saved = True
+                break
+            except PermissionError:
+                if attempt < 2:
+                    print(f"  [warn] {results_path.name} is locked "
+                          f"(Excel/OneDrive?) — retrying in 2s...")
+                    _time.sleep(2)
+
+        if not saved:
+            # Fall back: write timestamped temp file so no data is lost
+            from datetime import datetime as _dt
+            ts       = _dt.now().strftime("%H%M%S")
+            tmp_path = results_path.with_name(
+                f"{results_path.stem}_pending_{ts}{results_path.suffix}"
+            )
+            combined.to_csv(tmp_path, index=False)
+            print(f"  [warn] {results_path.name} still locked — "
+                  f"data saved to {tmp_path.name}\n"
+                  f"         Close Excel / pause OneDrive, then rename "
+                  f"that file to bet_results.csv")
+            continue
+
+        wins   = (combined["RESULT"] == "WIN").sum()
+        losses = (combined["RESULT"] == "LOSS").sum()
+        pnl    = combined["PNL"].sum()
         print(f"  Results → {results_path}")
         print(f"    {wins}W-{losses}L  |  Season P&L: {pnl:+.2f}u  "
               f"({len(combined)} graded bets)")

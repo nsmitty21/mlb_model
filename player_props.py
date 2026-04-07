@@ -354,8 +354,27 @@ def load_today_games() -> list:
         except Exception as e:
             print(f"  [warn] ESPN starter fallback failed: {e}")
 
-    n_with_sp = sum(1 for g in games if g.get("home_sp") or g.get("away_sp"))
+    n_with_sp   = sum(1 for g in games if g.get("home_sp") or g.get("away_sp"))
+    n_missing   = sum(1 for g in games if not g.get("home_sp") or not g.get("away_sp"))
     print(f"  SPs loaded: {n_with_sp}/{len(games)} games have starter data")
+
+    if n_missing > 0:
+        missing_games = [
+            f"{g.get('away_team','?')} @ {g.get('home_team','?')}"
+            f" (home_sp={g.get('home_sp','') or 'MISSING'}, "
+            f"away_sp={g.get('away_sp','') or 'MISSING'})"
+            for g in games
+            if not g.get("home_sp") or not g.get("away_sp")
+        ]
+        msg = (
+            f"\n[ERROR] Starting pitchers not announced for {n_missing} game(s):\n"
+            + "\n".join(f"  {g}" for g in missing_games)
+            + "\n\nStarters should be available by game day. "
+              "Check ESPN or wait for the official lineup announcement, "
+              "then re-run pull_lines.py and run_today.py before player_props.py."
+        )
+        raise ValueError(msg)
+
     return games
 
 
@@ -727,33 +746,37 @@ def pick_hr_props(
         park    = PARK_FACTORS.get(home_tm, 1.00)
 
         season_hr_rate = float(bs["hr_per_pa"] or 0)
-        if season_hr_rate == 0:
-            continue
-
-        # ── Require a known starting pitcher ─────────────────────────────────
-        # Without a SP name we can't assess the matchup — league-average pitcher
-        # multiplier (1.0x) makes every power hitter look equally attractive and
-        # the list never changes day-to-day.
-        if not opp_sp or opp_sp == "TBD":
-            continue
 
         # ── Regress batter HR rate to league mean ─────────────────────────────
-        # Prevents small early-season samples from dominating.
-        # 200 PA prior: a batter with 21 PA at 23.8% regresses to ~5.2%
-        BATTER_HR_PRIOR_PA  = 200
+        # Do this BEFORE the zero check. Early-season batters with 0 raw HRs
+        # in 20 PA still carry a regressed rate of ~2.8% — skipping them
+        # entirely (as the old raw-rate==0 check did) would blank the entire
+        # HR props list in the first weeks of the season.
+        # 200 PA prior: a batter with 21 PA at 23.8% regresses to ~5.2%;
+        # a batter with 20 PA at 0% regresses to ~2.8% (still rankable).
+        BATTER_HR_PRIOR_PA = 200
         reg_hr_rate = ((career_pa * season_hr_rate + BATTER_HR_PRIOR_PA * LEAGUE_AVG_HR_PA)
                        / (career_pa + BATTER_HR_PRIOR_PA))
 
+        # Skip only if regressed rate is essentially zero (no career HR history
+        # at all — e.g. a pitcher batting or a true zero across many seasons).
+        if reg_hr_rate < 0.005:
+            continue
+
         # ── Layer 2: pitcher HR-allowed rate (regressed, capped) ──────────────
+        # If SP is unknown fall back to 1.0x (league average) rather than
+        # skipping the batter entirely — unknown SP is common early in the
+        # season and would blank the entire HR props list.
+        sp_known = bool(opp_sp and opp_sp not in ("TBD", ""))
         PITCHER_HR_PRIOR_PA = 300
-        if opp_sp in pitcher_stats.index:
+        if sp_known and opp_sp in pitcher_stats.index:
             ps = pitcher_stats.loc[opp_sp]
             p_pa = float(ps.get("PA_faced") or 0)
             raw_p_hr = float(ps["hr_per_pa_allowed"] or LEAGUE_AVG_HR_PA)
             reg_p_hr = ((p_pa * raw_p_hr + PITCHER_HR_PRIOR_PA * LEAGUE_AVG_HR_PA)
                         / (p_pa + PITCHER_HR_PRIOR_PA))
         else:
-            reg_p_hr = LEAGUE_AVG_HR_PA
+            reg_p_hr = LEAGUE_AVG_HR_PA   # league-average multiplier
         # Cap at 2.0x so one bad outing doesn't make everyone look elite
         pitcher_mult = min(reg_p_hr / LEAGUE_AVG_HR_PA, 2.0)
 
@@ -785,7 +808,8 @@ def pick_hr_props(
         candidates.append({
             "batter":           batter,
             "team":             team,
-            "opp_sp":           opp_sp,
+            "opp_sp":           opp_sp if sp_known else "TBD",
+            "sp_known":         sp_known,
             "park":             home_tm,
             "park_factor":      park,
             "season_hr":        int(bs["HR"]),
@@ -1189,14 +1213,24 @@ def grade_bts_yesterday(pa: pd.DataFrame):
     pick_date   = last_pick["date"]
     pick_batter = last_pick["batter"]
 
-    # Look for the batter's PA on pick_date
+    # Look for the batter's PA on pick_date.
+    # IMPORTANT: game_date is a pd.Timestamp after load_pa_data() converts it.
+    # .astype(str) on a Timestamp gives '2026-04-03 00:00:00' which never
+    # matches the pick_date string '2026-04-03'. Use .dt.date instead.
     day_pa = pa[
-        (pa["game_date"].astype(str) == pick_date) &
+        (pa["game_date"].dt.date.astype(str) == pick_date) &
         (pa["batter"] == pick_batter)
     ]
 
+    latest_date = pa["game_date"].max().date().isoformat()
     if day_pa.empty:
-        return tracker   # game not yet in data
+        if latest_date < pick_date:
+            print(f"  [BTS] Grading pending — PA data only current to {latest_date} "
+                  f"(need {pick_date}). Run fetch_historical.py to update.")
+        else:
+            print(f"  [BTS] {pick_batter} not found in PA data for {pick_date} "
+                  f"(may have been scratched or DNP).")
+        return tracker
 
     got_hit = day_pa["H"].sum() > 0
     last_pick["result"] = "HIT" if got_hit else "OUT"
@@ -1240,10 +1274,12 @@ def generate(picks_json: dict | None = None) -> dict | None:
         print(f"  [error] {e}")
         return None
 
-    # Load today's games with SPs (picks_today.json → ESPN → empty)
-    # If picks_json was passed in by run_today.py, pre-populate SP names
-    # so load_today_games finds them in picks_today.json on disk.
-    games = load_today_games()
+    # Load today's games with SPs (picks_today.json → ESPN → error if still missing)
+    try:
+        games = load_today_games()
+    except ValueError as e:
+        print(str(e))
+        return None
 
     # Additional SP merge from in-memory picks_json (run_today.py passes this
     # immediately after writing picks_today.json, so it's always current)
@@ -1300,16 +1336,25 @@ def generate(picks_json: dict | None = None) -> dict | None:
     # ── Save BTS tracker with today's pick ───────────────────────────────────
     if bts.get("pick"):
         tracker = bts["tracker"]
-        tracker["picks"].append({
-            "date":        today_str,
-            "batter":      bts["pick"]["batter"],
-            "team":        bts["pick"]["team"],
-            "opp_sp":      bts["pick"]["opp_sp"],
-            "result":      None,   # graded next run
-            "streak_after": None,
-        })
-        tracker["last_updated"] = datetime.now().isoformat()
-        _save_bts_tracker(tracker)
+        # Guard against duplicate entries when run_today.py calls generate()
+        # multiple times in the same day (re-runs, testing, etc.)
+        already_logged = any(p.get("date") == today_str
+                             for p in tracker.get("picks", []))
+        if not already_logged:
+            tracker["picks"].append({
+                "date":         today_str,
+                "batter":       bts["pick"]["batter"],
+                "team":         bts["pick"]["team"],
+                "opp_sp":       bts["pick"]["opp_sp"],
+                "result":       None,   # graded next run
+                "streak_after": None,
+            })
+            tracker["last_updated"] = datetime.now().isoformat()
+            _save_bts_tracker(tracker)
+        else:
+            print(f"  [BTS] Today's pick already logged — skipping duplicate write."
+                  f" ({bts['pick']['batter']})"
+            )
 
     # ── Assemble output ───────────────────────────────────────────────────────
     nrfi_picks_only = [g for g in nrfi_picks if g["pick"] is not None]
