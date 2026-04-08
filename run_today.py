@@ -822,6 +822,145 @@ def run(target_date: str | None = None, skip_injuries: bool = False):
 
     all_picks.sort(key=lambda p: (-p["units"], -abs(p["edge"])))
 
+    # ── Conflict resolution ───────────────────────────────────────────────────
+    # Remove picks that bet opposing sides of the same game, which creates a
+    # scenario where only a 1-run win by the specific team produces any profit,
+    # and both bets can lose simultaneously.
+    #
+    # Conflicts we resolve (keep the higher-edge pick, drop the other):
+    #   • Both sides of ML in the same game (home ML + away ML)
+    #   • ML on Team A + RL -1.5 on Team B (opposing teams, same game)
+    #     → only profitable if A wins by exactly 1; 1-run loss means both lose
+    #
+    # Safe combinations we leave alone:
+    #   • Same team on ML + RL (correlated upside, not conflicting)
+    #   • RL -1.5 + RL +1.5 on opposing teams (non-conflicting outcomes)
+    #   • Any combination involving Totals (independent of side)
+    def _resolve_conflicts(picks: list) -> list:
+        from collections import defaultdict
+
+        # Group picks by game key (home_team|away_team)
+        by_game: dict[str, list] = defaultdict(list)
+        for p in picks:
+            key = f"{p.get('home_team','')}|{p.get('away_team','')}"
+            by_game[key].append(p)
+
+        keep = []
+        for game_key, game_picks in by_game.items():
+            # Separate into market buckets
+            ml_picks    = [p for p in game_picks if p["market"] == "ML"]
+            rl_picks    = [p for p in game_picks if p["market"] == "RL"]
+            total_picks = [p for p in game_picks if p["market"] == "Total"]
+
+            # Totals never conflict with anything — always keep
+            keep.extend(total_picks)
+
+            if not ml_picks and not rl_picks:
+                continue
+
+            # Identify which team each pick is on (home or away)
+            home_team = game_key.split("|")[0]
+            away_team = game_key.split("|")[1]
+
+            def _team_side(p):
+                """Return 'home' or 'away' based on which team the pick is on."""
+                team = str(p.get("team", ""))
+                side = str(p.get("side", ""))
+                if side in ("home", "away"):
+                    return side
+                # Fall back to team name matching
+                if home_team and home_team in team:
+                    return "home"
+                if away_team and away_team in team:
+                    return "away"
+                return side  # use as-is if can't determine
+
+            # ── Check for ML vs ML conflict (both sides) ──────────────────────
+            ml_home = [p for p in ml_picks if _team_side(p) == "home"]
+            ml_away = [p for p in ml_picks if _team_side(p) == "away"]
+
+            if ml_home and ml_away:
+                # Both sides of ML — keep the higher-edge pick
+                all_ml = ml_home + ml_away
+                best_ml = max(all_ml, key=lambda p: abs(p["edge"]))
+                dropped = [p for p in all_ml if p is not best_ml]
+                for d in dropped:
+                    print(f"  [CONFLICT] Dropping {d['market']} {d.get('team','')} "
+                          f"(edge {d['edge']*100:.1f}%) — conflicts with "
+                          f"{best_ml['market']} {best_ml.get('team','')} "
+                          f"(edge {best_ml['edge']*100:.1f}%)")
+                ml_picks = [best_ml]
+                ml_home  = [p for p in ml_picks if _team_side(p) == "home"]
+                ml_away  = [p for p in ml_picks if _team_side(p) == "away"]
+
+            # ── Check for ML vs opposing RL -1.5 conflict ─────────────────────
+            # In baseball the run line is always ±1.5.
+            # A -1.5 pick means that team must WIN by 2+.
+            # Conflict: ML on Team A + RL -1.5 on Team B (opposing teams)
+            #   → only profitable if A wins by exactly 1; a 1-run loss = both lose.
+            # Safe: same team on ML + RL -1.5 (correlated upside).
+
+            def _spread_line(p) -> float:
+                """Return the numeric spread line, defaulting to +1.5 if unknown."""
+                raw = p.get("spread_line")
+                if raw is not None:
+                    try:
+                        return float(raw)
+                    except (TypeError, ValueError):
+                        pass
+                # Fall back: parse last token of team field e.g. "Texas Rangers -1.5"
+                parts = str(p.get("team", "")).rsplit(" ", 1)
+                if len(parts) == 2:
+                    try:
+                        return float(parts[1])
+                    except ValueError:
+                        pass
+                return 1.5  # default +1.5 (won't false-positive as conflict)
+
+            rl_home_minus = [p for p in rl_picks
+                             if _team_side(p) == "home" and _spread_line(p) < 0]
+            rl_away_minus = [p for p in rl_picks
+                             if _team_side(p) == "away" and _spread_line(p) < 0]
+
+            conflicts_to_resolve = []
+            # ML on home + RL -1.5 on away = conflict
+            for ml in ml_home:
+                for rl in rl_away_minus:
+                    conflicts_to_resolve.append((ml, rl))
+            # ML on away + RL -1.5 on home = conflict
+            for ml in ml_away:
+                for rl in rl_home_minus:
+                    conflicts_to_resolve.append((ml, rl))
+
+            resolved_drops = set()
+            for ml_p, rl_p in conflicts_to_resolve:
+                if id(ml_p) in resolved_drops or id(rl_p) in resolved_drops:
+                    continue
+                # Keep higher edge, drop the other
+                if abs(ml_p["edge"]) >= abs(rl_p["edge"]):
+                    resolved_drops.add(id(rl_p))
+                    print(f"  [CONFLICT] Dropping RL {rl_p.get('team','')} "
+                          f"(edge {rl_p['edge']*100:.1f}%) — opposes "
+                          f"ML {ml_p.get('team','')} "
+                          f"(edge {ml_p['edge']*100:.1f}%)")
+                else:
+                    resolved_drops.add(id(ml_p))
+                    print(f"  [CONFLICT] Dropping ML {ml_p.get('team','')} "
+                          f"(edge {ml_p['edge']*100:.1f}%) — opposes "
+                          f"RL {rl_p.get('team','')} "
+                          f"(edge {rl_p['edge']*100:.1f}%)")
+
+            kept_ml = [p for p in ml_picks if id(p) not in resolved_drops]
+            kept_rl = [p for p in rl_picks if id(p) not in resolved_drops]
+            keep.extend(kept_ml)
+            keep.extend(kept_rl)
+
+        return keep
+
+    all_picks = _resolve_conflicts(all_picks)
+    # Re-sort after conflict removal
+    all_picks.sort(key=lambda p: (-p["units"], -abs(p["edge"])))
+
     ml_picks = [p for p in all_picks if p["market"] == "ML"]
     away_ml  = [p for p in ml_picks  if p["side"]   == "away"]
     three_u  = [p for p in all_picks if p["units"]  == 3]

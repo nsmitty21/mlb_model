@@ -1,7 +1,7 @@
 Injury Logic
 
-Get rid of bets over certain threshold edge (if higher than 10% or something like that)
+Fix synthetic Pinnacle quality (conflict filter is current fix but we're putting a band-aid on a gunshot wound)
 
-Add a 'beat the streak' feature picking a batter to get a hit everyday
+Web page isn't importing starter pitchers in player_props.py (HR Props and Beat the Streak, NRFI/YRFI is fine)
 
-NRFI picks
+Change  NRFI/YRFI to say YRFI and the probability if that pick fires instead of NRFI and a low probability

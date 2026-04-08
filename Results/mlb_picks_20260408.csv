@@ -1,0 +1,17 @@
+DATE,MATCHUP,BET_SIGNAL,VEGAS_SPREAD,SPREAD_EDGE,MODEL_PRED,PRED_MARGIN,BOOK,ODDS,UNITS,MARKET,GAME_TIME
+2026-04-08,Chicago Cubs @ Tampa Bay Rays,BET (CHC) RL -1.5 (+150) [HIGH CONFIDENCE],-1.5,+26.2%,64.5% (model) vs 38.3% (book),26.2,FANDUEL,+150,3,SPREAD,6:41 PM ET
+2026-04-08,Chicago Cubs @ Tampa Bay Rays,BET (CHC) ML (-108) [LOW CONFIDENCE],-108,+7.2%,57.2% (model) vs 50.0% (book),7.2,FANDUEL,-108,1,ML,6:41 PM ET
+2026-04-08,Arizona Diamondbacks @ New York Mets,BET (NYM) RL -1.5 (+152) [HIGH CONFIDENCE],-1.5,+21.8%,59.7% (model) vs 38.0% (book),21.7,FANDUEL,+152,3,SPREAD,4:11 PM ET
+2026-04-08,Baltimore Orioles @ Chicago White Sox,BET (CHW) ML (+136) [HIGH CONFIDENCE],+136,+21.6%,62.2% (model) vs 40.7% (book),21.5,FANDUEL,+136,3,ML,2:11 PM ET
+2026-04-08,Baltimore Orioles @ Chicago White Sox,BET (BAL) RL -1.5 (+113) [HIGH CONFIDENCE],-1.5,+19.5%,64.5% (model) vs 45.1% (book),19.4,DRAFTKINGS,+113,3,SPREAD,2:11 PM ET
+2026-04-08,Atlanta Braves @ Los Angeles Angels,BET (ATL) RL -1.5 (+123) [HIGH CONFIDENCE],-1.5,+21.5%,64.5% (model) vs 43.0% (book),21.5,DRAFTKINGS,+123,3,SPREAD,4:08 PM ET
+2026-04-08,Seattle Mariners @ Texas Rangers,BET (SEA) RL -1.5 (+146) [HIGH CONFIDENCE],-1.5,+20.1%,59.1% (model) vs 38.9% (book),20.2,FANDUEL,+146,3,SPREAD,2:36 PM ET
+2026-04-08,Seattle Mariners @ Texas Rangers,BET (TEX) ML (+109) [MEDIUM CONFIDENCE],+109,+13.9%,59.7% (model) vs 45.8% (book),13.9,DRAFTKINGS,+109,2,ML,2:36 PM ET
+2026-04-08,Kansas City Royals @ Cleveland Guardians,BET (KCR) RL -1.5 (+140) [HIGH CONFIDENCE],-1.5,+19.2%,59.1% (model) vs 39.8% (book),19.3,FANDUEL,+140,3,SPREAD,1:11 PM ET
+2026-04-08,St. Louis Cardinals @ Washington Nationals,BET (WSN) ML (+110) [MEDIUM CONFIDENCE],+110,+13.9%,59.7% (model) vs 45.7% (book),14.0,FANDUEL,+110,2,ML,4:06 PM ET
+2026-04-08,St. Louis Cardinals @ Washington Nationals,BET (STL) RL -1.5 (+132) [MEDIUM CONFIDENCE],-1.5,+12.8%,54.0% (model) vs 41.2% (book),12.8,FANDUEL,+132,2,SPREAD,4:06 PM ET
+2026-04-08,Milwaukee Brewers @ Boston Red Sox,BET (MIL) ML (+114) [MEDIUM CONFIDENCE],+114,+12.3%,57.2% (model) vs 44.9% (book),12.3,FANDUEL,+114,2,ML,1:35 PM ET
+2026-04-08,Athletics @ New York Yankees,BET (NYY) RL -1.5 (+100) [MEDIUM CONFIDENCE],-1.5,+11.9%,59.7% (model) vs 47.8% (book),11.9,FANDUEL,+100,2,SPREAD,7:06 PM ET
+2026-04-08,San Diego Padres @ Pittsburgh Pirates,BET (PIT) ML (-106) [MEDIUM CONFIDENCE],-106,+10.1%,59.7% (model) vs 49.5% (book),10.2,FANDUEL,-106,2,ML,12:36 PM ET
+2026-04-08,San Diego Padres @ Pittsburgh Pirates,BET (PIT/SDP) OVER 7.5 (+100) [LOW CONFIDENCE],7.5,+7.2%,55.0% (model) vs 47.8% (book),7.2,DRAFTKINGS,+100,1,TOTAL,12:36 PM ET
+2026-04-08,Cincinnati Reds @ Miami Marlins,BET (MIA) ML (-126) [LOW CONFIDENCE],-126,+8.5%,62.2% (model) vs 53.7% (book),8.5,FANDUEL,-126,1,ML,6:41 PM ET

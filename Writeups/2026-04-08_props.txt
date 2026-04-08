@@ -1,0 +1,50 @@
+MLB PROPS — 2026-04-08
+============================================================
+Generated: 2026-04-08 07:26
+
+────────────────────────────────────────────────────────────
+BEAT THE STREAK
+────────────────────────────────────────────────────────────
+🎯 Pick: Vladimir Guerrero Jr. ()
+   vs TBD @ 
+   Season: .295 AVG | OPS 0.889 | Hit rate 25.9%
+   Pitcher H-allowed: 26.0%  Park: 1.00x
+   Current personal streak: 16 games
+   BTS streak this season:  0 games (best: 0)
+
+  Top 5 candidates:
+  1. Vladimir Guerrero Jr. ()  Score:0.775  Avg:0.295  Streak:16
+  2. Jonathan Aranda ()  Score:0.724  Avg:0.280  Streak:11
+  3. Bobby Witt Jr. ()  Score:0.713  Avg:0.289  Streak:8
+  4. Sal Stewart ()  Score:0.713  Avg:0.377  Streak:5
+  5. Xavier Edwards ()  Score:0.708  Avg:0.299  Streak:7
+
+────────────────────────────────────────────────────────────
+HOME RUN PROPS
+────────────────────────────────────────────────────────────
+  1. Kyle Schwarber ()  HR%: 6.6%  vs TBD
+     Season: 239 HR / 3516 PA  (6.80% rate)  Park: 1.00x  Pitcher mult: 1.00x
+  2. Nick Kurtz ()  HR%: 6.0%  vs TBD
+     Season: 36 HR / 506 PA  (7.11% rate)  Park: 1.00x  Pitcher mult: 1.00x
+  3. Mike Trout ()  HR%: 5.9%  vs TBD
+     Season: 107 HR / 1724 PA  (6.21% rate)  Park: 1.00x  Pitcher mult: 1.00x
+  4. Byron Buxton ()  HR%: 5.8%  vs TBD
+     Season: 117 HR / 1935 PA  (6.05% rate)  Park: 1.00x  Pitcher mult: 1.00x
+  5. Colson Montgomery ()  HR%: 5.7%  vs TBD
+     Season: 22 HR / 304 PA  (7.24% rate)  Park: 1.00x  Pitcher mult: 1.00x
+
+────────────────────────────────────────────────────────────
+NRFI / YRFI PICKS
+────────────────────────────────────────────────────────────
+  5 pick(s):
+
+  💥 YRFI  Chicago Cubs @ Tampa Bay Rays  (29% NRFI)  Conf: 42%
+     C. Rea: 64% NRFI (76 GS)  |  J. Boyle: 44% NRFI (23 GS)  |  Park: 0.96x
+  🔒 NRFI  St. Louis Cardinals @ Washington Nationals  (65% NRFI)  Conf: 29%
+     M. McGreevy: 85% NRFI (20 GS)  |  M. Mikolas: 74% NRFI (141 GS)  |  Park: 0.95x
+  💥 YRFI  Kansas City Royals @ Cleveland Guardians  (36% NRFI)  Conf: 27%
+     C. Ragans: 66% NRFI (70 GS)  |  J. Cantillo: 54% NRFI (22 GS)  |  Park: 0.97x
+  💥 YRFI  Atlanta Braves @ Los Angeles Angels  (38% NRFI)  Conf: 23%
+     G. Holmes: 55% NRFI (29 GS)  |  R. Detmers: 68% NRFI (76 GS)  |  Park: 0.97x
+  💥 YRFI  Houston Astros @ Colorado Rockies  (41% NRFI)  Conf: 18%
+     C. Javier: 62% NRFI (86 GS)  |  M. Lorenzen: 74% NRFI (94 GS)  |  Park: 1.18x

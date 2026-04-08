@@ -330,11 +330,19 @@ def _grade_pick(row: pd.Series, espn_results: dict) -> dict | None:
         bet_home = (bet_abbr == ha)
         margin   = hs - as_
         if bet_home:
+            # Home team at 'line': covers if (home_margin + line) > 0
+            # e.g. home -1.5: needs margin > 1.5 (win by 2+)
+            # e.g. home +1.5: covers if margin > -1.5 (lose by 1 or win)
             covered = (margin + line) > 0
             push    = (margin + line) == 0
         else:
-            covered = (-margin + (-line)) > 0
-            push    = (-margin + (-line)) == 0
+            # Away team at 'line': away margin = -margin (home perspective)
+            # Away -1.5: away must win by 2+  →  -margin > 1.5  →  (-margin + line) > 0
+            #            where line = -1.5  →  -margin - 1.5 > 0  →  margin < -1.5  ✓
+            # Away +1.5: away covers losing by 1 →  -margin > -1.5  →  (-margin + line) > 0
+            #            where line = +1.5  →  -margin + 1.5 > 0  →  margin < 1.5  ✓
+            covered = (-margin + line) > 0
+            push    = (-margin + line) == 0
         result = "WIN" if covered else ("PUSH" if push else "LOSS")
 
     elif market == "TOTAL":
@@ -456,37 +464,10 @@ def append_results(graded_df: pd.DataFrame, yesterday: str):
         else:
             combined = graded_df.copy()
 
-        # Write with retry — file may be locked by Excel or OneDrive sync.
-        import time as _time
-        saved = False
-        for attempt in range(3):
-            try:
-                combined.to_csv(results_path, index=False)
-                saved = True
-                break
-            except PermissionError:
-                if attempt < 2:
-                    print(f"  [warn] {results_path.name} is locked "
-                          f"(Excel/OneDrive?) — retrying in 2s...")
-                    _time.sleep(2)
-
-        if not saved:
-            # Fall back: write timestamped temp file so no data is lost
-            from datetime import datetime as _dt
-            ts       = _dt.now().strftime("%H%M%S")
-            tmp_path = results_path.with_name(
-                f"{results_path.stem}_pending_{ts}{results_path.suffix}"
-            )
-            combined.to_csv(tmp_path, index=False)
-            print(f"  [warn] {results_path.name} still locked — "
-                  f"data saved to {tmp_path.name}\n"
-                  f"         Close Excel / pause OneDrive, then rename "
-                  f"that file to bet_results.csv")
-            continue
-
-        wins   = (combined["RESULT"] == "WIN").sum()
-        losses = (combined["RESULT"] == "LOSS").sum()
-        pnl    = combined["PNL"].sum()
+        combined.to_csv(results_path, index=False)
+        wins  = (combined["RESULT"] == "WIN").sum()
+        losses= (combined["RESULT"] == "LOSS").sum()
+        pnl   = combined["PNL"].sum()
         print(f"  Results → {results_path}")
         print(f"    {wins}W-{losses}L  |  Season P&L: {pnl:+.2f}u  "
               f"({len(combined)} graded bets)")
