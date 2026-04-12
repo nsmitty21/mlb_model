@@ -63,6 +63,11 @@ PARK_FACTORS = {
 # bbref_game_id encodes the home team: e.g. "SFN202603250" → home = SFN.
 # This lets us derive the exact team name for every batter without a roster,
 # using only bbref_game_id + batting_team_home (0/1) from the PA files.
+# NOTE: Team assignment uses pitcher names from today_lines.json as the anchor
+# rather than bbref_game_id prefixes, because 2026 PA files mix BBRef-format IDs
+# ("SFN202603250") and ESPN-format IDs ("mlb_824864"). The pitcher-name approach
+# works for any game ID format.
+
 BBREF_HOME_ABBR_TO_FULL = {
     "ARI": "Arizona Diamondbacks",   "ATL": "Atlanta Braves",
     "BAL": "Baltimore Orioles",      "BOS": "Boston Red Sox",
@@ -79,126 +84,74 @@ BBREF_HOME_ABBR_TO_FULL = {
     "SEA": "Seattle Mariners",       "SLN": "St. Louis Cardinals",
     "TBA": "Tampa Bay Rays",         "TEX": "Texas Rangers",
     "TOR": "Toronto Blue Jays",      "WAS": "Washington Nationals",
-    "ATH": "Athletics",              # Sacramento relocation 2026
+    "ATH": "Athletics",
 }
-
-# Reverse map: full team name → BBRef home abbr (for cross-referencing today_lines)
 FULL_TO_BBREF_ABBR = {v: k for k, v in BBREF_HOME_ABBR_TO_FULL.items()}
 
 
 def build_batter_team_map(pa_slice: pd.DataFrame, games: list) -> dict:
     """
-    Build a precise batter → full_team_name mapping from PA data.
+    Build batter → full_team_name from PA data + today's game list.
 
-    Strategy (two passes):
+    Uses pitcher names from today_lines.json as the anchor — works for any
+    game ID format (BBRef 'SFN202603250' or ESPN 'mlb_824864').
 
-    Pass 1 — PA data only (works for all dates, including historical):
-      Home batters (batting_team_home == 1):
-        team = BBREF_HOME_ABBR_TO_FULL[bbref_game_id[:3]]
-
-      Away batters (batting_team_home == 0):
-        Within each game, the pitchers facing away batters are from the HOME
-        team, and the pitchers facing home batters are from the AWAY team.
-        We build a pitcher → team lookup from the home batters' PA rows
-        (pitcher facing home batters = away team's pitcher → away team).
-        Then for each away batter, look up their pitcher's team.
-
-    Pass 2 — today_lines.json (fills any remaining gaps using home_abbr match):
-        home_abbr → away_full from the games list.
-
-    This means away batters are correctly mapped even when the game date in
-    the PA slice doesn't appear in today_lines.json (e.g. historical dates).
+    Logic:
+      From today_lines.json: home_sp pitches for home_team, away_sp for away_team.
+      For every PA row, the pitcher column tells us who was on the mound.
+        - pitcher == home_sp  → batter is on the AWAY team
+        - pitcher == away_sp  → batter is on the HOME team
+      Batters whose pitcher isn't a known starter (relievers) inherit their
+      game_id + batting_team_home assignment once any batter in that game
+      is mapped via the starter.
     """
-    # ── Pass 1a: home batters — direct from bbref_game_id ────────────────────
-    batter_to_team: dict[str, str] = {}
-    for _, row in pa_slice.iterrows():
-        if row["batting_team_home"] == 1:
-            home_abbr = str(row["bbref_game_id"])[:3].upper()
-            home_full = BBREF_HOME_ABBR_TO_FULL.get(home_abbr, "")
-            if home_full:
-                batter_to_team[row["batter"]] = home_full
-
-    # ── Pass 1b: away batters — derive via pitcher→team within each game ──────
-    # For each game: pitchers who pitched to HOME batters are the AWAY team's pitchers.
-    # So: pitcher → game_id, and game_id[:3] gives us the home team.
-    # The pitcher's team = the AWAY team = the team we need for away batters.
-    #
-    # Build: game_id → away_team by finding which pitchers faced home batters
-    # then looking those pitchers up against a pitcher-to-known-team table.
-    #
-    # Simpler direct approach: within each game, build
-    #   game_id → set of (pitcher, faced_home_batters)
-    # A pitcher who faces home batters (batting_team_home=1) is an AWAY pitcher.
-    # But we still need the away team NAME, not just the pitcher name.
-    #
-    # Actual solution: group each game's away-batting rows by game_id.
-    # For each game, look at the pitchers who face AWAY batters (batting_team_home=0).
-    # Those pitchers are HOME team pitchers. Cross-ref against home_batters in the
-    # same game to find the away team from home_abbr, then assign to away batters.
-    #
-    # This is circular — we know home from bbref_game_id but need away team name.
-    # Use today_lines.json for today's date; for historical, build pitcher→team
-    # from the home-side evidence (pitcher appears as home pitcher → away team
-    # is whoever was batting when batting_team_home=0 in that game).
-    #
-    # PRAGMATIC: build game_id → away_team from all games where we DO know the
-    # away team (either from today_lines or from home-batter evidence).
-    # For today's games, today_lines.json is the source.
-
-    # ── Pass 2: fill gaps from today_lines.json ───────────────────────────────
-    home_abbr_to_away: dict[str, str] = {}
+    # Step 1: build pitcher_name → game dict from today's starters
+    sp_to_game: dict[str, dict] = {}
     for g in games:
-        ht = g.get("home_team", "")
-        at = g.get("away_team", "")
-        ha = FULL_TO_BBREF_ABBR.get(ht, ht[:3].upper())
-        if ha and at:
-            home_abbr_to_away[ha] = at
+        hsp = (g.get("home_sp") or "").strip()
+        asp = (g.get("away_sp") or "").strip()
+        if hsp:
+            sp_to_game[hsp.lower()] = g
+        if asp:
+            sp_to_game[asp.lower()] = g
 
-    # Also build from game-level pitcher evidence within the PA slice:
-    # For each game, pitchers who appear when batting_team_home=0 are home pitchers.
-    # We know the home team → so the away team is whichever team ISN'T the home team.
-    # We can't get the away team name from this alone without a roster.
-    # BUT: if any home batter in the same game already has a mapped team, the away
-    # team is whoever home batters' team's OPPONENT is in today_lines.
-    # → Fall back: for games not in today_lines, derive away team from the
-    #   PITCHER NAME itself, cross-referencing pitcher → team built from historical
-    #   rows where we know the home/away assignment.
+    # Step 2: assign each batter a team via their pitcher
+    batter_to_team: dict[str, str] = {}
+    gameid_side_to_team: dict[tuple, str] = {}   # (game_id, is_home) → team
 
-    # Build pitcher → their team (the team they PITCH for = opposite of batter's team):
-    # A pitcher in row with batting_team_home=1 → pitcher is on the AWAY team.
-    # home_abbr of that game is the HOME team, and we know it → away team for pitcher.
-    pitcher_to_team: dict[str, str] = {}
     for _, row in pa_slice.iterrows():
-        pitcher   = row["pitcher"]
-        home_abbr = str(row["bbref_game_id"])[:3].upper()
-        home_full = BBREF_HOME_ABBR_TO_FULL.get(home_abbr, "")
-        if not home_full:
-            continue
-        if row["batting_team_home"] == 1:
-            # Pitcher is pitching to HOME batters → pitcher is on the AWAY team
-            # Away team = home_abbr_to_away.get(home_abbr) if known
-            away = home_abbr_to_away.get(home_abbr, "")
-            if away:
-                pitcher_to_team[pitcher] = away
-        else:
-            # Pitcher is pitching to AWAY batters → pitcher is on the HOME team
-            pitcher_to_team[pitcher] = home_full
+        batter  = str(row["batter"])
+        pitcher = str(row["pitcher"]).replace("\xa0", " ").strip()
+        is_home = int(row["batting_team_home"])
+        game_id = str(row["bbref_game_id"])
 
-    # Now assign away batters using their pitcher's team (the away team's pitcher
-    # is the home team's pitcher, but the AWAY batter faces the HOME pitcher —
-    # so the away batter's pitcher is from the home team, and the away batter
-    # belongs to the away team = home_abbr_to_away[home_abbr]).
+        game = sp_to_game.get(pitcher.lower())
+        if game:
+            ht = game.get("home_team", "")
+            at = game.get("away_team", "")
+            hsp_name = (game.get("home_sp") or "").lower()
+            asp_name = (game.get("away_sp") or "").lower()
+            if pitcher.lower() == hsp_name:
+                # Home SP faces away batters
+                batter_to_team[batter] = at
+                gameid_side_to_team[(game_id, 0)] = at
+                gameid_side_to_team[(game_id, 1)] = ht
+            elif pitcher.lower() == asp_name:
+                # Away SP faces home batters
+                batter_to_team[batter] = ht
+                gameid_side_to_team[(game_id, 1)] = ht
+                gameid_side_to_team[(game_id, 0)] = at
+
+    # Step 3: reliever fallback — inherit from game_id + side
     for _, row in pa_slice.iterrows():
-        batter    = row["batter"]
+        batter  = str(row["batter"])
         if batter in batter_to_team:
-            continue   # already mapped in pass 1a
-        if row["batting_team_home"] != 0:
             continue
-        home_abbr = str(row["bbref_game_id"])[:3].upper()
-        # Try today_lines lookup first (most reliable for today's games)
-        away_full = home_abbr_to_away.get(home_abbr, "")
-        if away_full:
-            batter_to_team[batter] = away_full
+        is_home = int(row["batting_team_home"])
+        game_id = str(row["bbref_game_id"])
+        team = gameid_side_to_team.get((game_id, is_home))
+        if team:
+            batter_to_team[batter] = team
 
     return batter_to_team
 
@@ -552,6 +505,7 @@ def pick_beat_the_streak(
 
     sp_map   = {}
     park_map = {}
+    today_teams = set()
     for g in games:
         ht  = g.get("home_team", "")
         at  = g.get("away_team", "")
@@ -561,19 +515,28 @@ def pick_beat_the_streak(
         sp_map[at]   = hsp
         park_map[ht] = ht
         park_map[at] = ht
+        today_teams.add(ht)
+        today_teams.add(at)
 
-    last_game_date = pa["game_date"].max()
-    recent_batters = pa[pa["game_date"] == last_game_date]["batter"].unique()
-    recent_pa      = pa[pa["game_date"] == last_game_date]
-    batter_to_team = build_batter_team_map(recent_pa, games)
+    # Use 2026 PA only for team mapping — using all historical years causes wrong
+    # team assignments because historical game IDs map to different away teams
+    # than who is visiting today.
+    pa_2026 = pa[pa["game_date"].dt.year == 2026].copy()
+    batter_to_team = build_batter_team_map(pa_2026, games)
+
+    # All batters in batter_stats who are on a team playing today
+    all_batters = batter_stats.index.tolist()
 
     candidates = []
-    for batter in recent_batters:
-        if batter not in batter_stats.index:
-            continue
+    for batter in all_batters:
         bs = batter_stats.loc[batter]
         career_pa = int(bs["PA"])
         if career_pa < 50:
+            continue
+
+        team = batter_to_team.get(batter, "")
+        # Only include batters whose team is confirmed playing today
+        if not team or team not in today_teams:
             continue
 
         team    = batter_to_team.get(batter, "")
@@ -712,35 +675,89 @@ def pick_hr_props(
 
     Final score = blended_hr_rate × pitcher_mult × park_factor
     """
-    last_game_date = pa["game_date"].max()
-    recent_batters = pa[pa["game_date"] == last_game_date]["batter"].unique()
-    recent_pa      = pa[pa["game_date"] == last_game_date]
-
     # Build team and SP maps from today's games
-    sp_map   = {}
-    park_map = {}
+    sp_map     = {}
+    park_map   = {}
+    today_teams = set()
     for g in games:
         ht  = g.get("home_team", "")
         at  = g.get("away_team", "")
         hsp = g.get("home_sp", "") or ""
         asp = g.get("away_sp", "") or ""
-        sp_map[ht]   = asp    # home batters face away SP
-        sp_map[at]   = hsp    # away batters face home SP
+        sp_map[ht]   = asp
+        sp_map[at]   = hsp
         park_map[ht] = ht
         park_map[at] = ht
+        today_teams.add(ht)
+        today_teams.add(at)
 
-    batter_to_team = build_batter_team_map(recent_pa, games)
+    # ── Batter → team mapping ─────────────────────────────────────────────────
+    # The old approach used historical PA data (2021-2025) to find each batter's
+    # "most recent team" by bbref_game_id[:3], then cross-referenced that home
+    # abbrev against today's game schedule. This produced wrong teams because
+    # e.g. Altuve's 2024 HOU home game had bbref prefix "HOU", but today HOU
+    # happens to be the away team — so the fallback returned the wrong team.
+    #
+    # Correct approach: use only 2026 PA data.
+    # Primary: pitcher-name anchor (build_batter_team_map) — works when the
+    #   batter faced a pitcher who is TODAY's starter for some team.
+    # Fallback: 2026 BBRef-format game IDs only (reliable 3-letter prefix),
+    #   mapping home_abbr → today's home team, and away batters get today's
+    #   away team for that home park. Skips ESPN-format mlb_XXXXXX IDs.
+
+    pa_2026 = pa[pa["game_date"].dt.year == 2026].copy()
+
+    # Primary: pitcher-name anchor on 2026 PA vs today's SPs
+    batter_to_team = build_batter_team_map(pa_2026, games)
+
+    # Build lookup: bbref_home_abbr → full home team name (from BBREF map)
+    bbref_to_full: dict[str, str] = {v: k for k, v in FULL_TO_BBREF_ABBR.items()}
+
+    # Build today's home→away map (full names)
+    home_to_away_today: dict[str, str] = {}
+    for g in games:
+        ht = g.get("home_team", "")
+        at = g.get("away_team", "")
+        if ht and at:
+            home_to_away_today[ht] = at
+
+    # Fallback: 2026 BBRef-format PAs only, most recent first
+    pa_2026_bbref = pa_2026[
+        ~pa_2026["bbref_game_id"].astype(str).str.startswith("mlb_")
+    ].sort_values("game_date", ascending=False)
+
+    seen_batters = set(batter_to_team.keys())
+    for _, row in pa_2026_bbref.iterrows():
+        batter = str(row["batter"])
+        if batter in seen_batters:
+            continue
+        gid = str(row["bbref_game_id"])
+        home_abbr = gid[:3].upper()
+        home_full = bbref_to_full.get(home_abbr, "")
+        if not home_full:
+            continue
+        if row["batting_team_home"] == 1:
+            team = home_full
+        else:
+            # Away batter: their team is whoever is visiting home_full TODAY
+            # We can't know which away team visited in 2026 without the data,
+            # so only assign if home_full is in today's games and we can resolve
+            team = home_to_away_today.get(home_full, "")
+        if team and team in today_teams:
+            batter_to_team[batter] = team
+            seen_batters.add(batter)
 
     candidates = []
-    for batter in recent_batters:
-        if batter not in batter_stats.index:
-            continue
+    for batter in batter_stats.index:
         bs = batter_stats.loc[batter]
         career_pa = int(bs["PA"])
         if career_pa < 50 or int(bs["AB"]) < 20:
             continue
 
         team    = batter_to_team.get(batter, "")
+        # Only include batters playing today
+        if not team or team not in today_teams:
+            continue
         opp_sp  = sp_map.get(team, "")
         home_tm = park_map.get(team, team)
         park    = PARK_FACTORS.get(home_tm, 1.00)

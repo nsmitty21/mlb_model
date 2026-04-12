@@ -438,6 +438,43 @@ def grade_yesterdays_bets(yesterday: str) -> pd.DataFrame:
 # 3. APPEND TO bet_results.csv
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def _sync_results_files():
+    """
+    Ensure MLB_RESULTS_CSV (NBA_OUTPUT path — what the page reads) and
+    LOCAL_RESULTS_CSV (MLB Model Files path — the authoritative copy) are
+    in sync.  The local copy is the source of truth: if it's newer or has
+    more rows, copy it to the NBA_OUTPUT path.
+
+    Called at the top of main() so the page always reads current data even
+    if a previous run failed to write one of the two paths.
+    """
+    import shutil
+
+    if not LOCAL_RESULTS_CSV.exists():
+        return   # nothing to sync from
+
+    MLB_RESULTS_CSV.parent.mkdir(parents=True, exist_ok=True)
+
+    if not MLB_RESULTS_CSV.exists():
+        shutil.copy2(LOCAL_RESULTS_CSV, MLB_RESULTS_CSV)
+        print(f"  [sync] Copied results → {MLB_RESULTS_CSV}")
+        return
+
+    # Both exist — use whichever has more rows (more complete)
+    try:
+        local_df  = pd.read_csv(LOCAL_RESULTS_CSV)
+        remote_df = pd.read_csv(MLB_RESULTS_CSV)
+        if len(local_df) >= len(remote_df):
+            shutil.copy2(LOCAL_RESULTS_CSV, MLB_RESULTS_CSV)
+            print(f"  [sync] Results synced ({len(local_df)} rows → NBA_OUTPUT path)")
+        else:
+            # Remote has more rows — sync the other direction
+            shutil.copy2(MLB_RESULTS_CSV, LOCAL_RESULTS_CSV)
+            print(f"  [sync] Results synced ({len(remote_df)} rows ← NBA_OUTPUT path)")
+    except Exception as e:
+        print(f"  [warn] Results sync failed: {e}")
+
+
 def append_results(graded_df: pd.DataFrame, yesterday: str):
     """Merge newly-graded rows into both bet_results.csv locations."""
     if graded_df.empty:
@@ -504,6 +541,14 @@ def main(grade_only: bool = False, no_push: bool = False):
     today     = date.today().isoformat()
     yesterday = (date.today() - timedelta(days=1)).isoformat()
 
+    # ── Step 0: Sync results files so the page always reads current data ─────
+    # The page reads from NBA_OUTPUT/MLB/Results/bet_results.csv but grading
+    # also writes to MLB Model Files/Results/bet_results.csv (the local copy).
+    # If these drift out of sync (e.g. a previous run failed mid-write), the
+    # page will show stale stats. This sync step runs before any grading so
+    # the authoritative local copy is always propagated to the page's path.
+    _sync_results_files()
+
     # ── Step 1: Write today's picks CSV + X thread writeup ───────────────────
     if not grade_only:
         if not PICKS_JSON.exists():
@@ -558,5 +603,11 @@ if __name__ == "__main__":
                         help="Skip picks CSV step — only grade + push")
     parser.add_argument("--no-push",   action="store_true",
                         help="Write files but skip the git push")
+    parser.add_argument("--sync-only", action="store_true",
+                        help="Only sync results files then push — skip grading and picks")
     args = parser.parse_args()
-    main(grade_only=args.grade_only, no_push=args.no_push)
+    if args.sync_only:
+        _sync_results_files()
+        trigger_page_rebuild()
+    else:
+        main(grade_only=args.grade_only, no_push=args.no_push)

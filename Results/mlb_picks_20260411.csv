@@ -1,0 +1,15 @@
+DATE,MATCHUP,BET_SIGNAL,VEGAS_SPREAD,SPREAD_EDGE,MODEL_PRED,PRED_MARGIN,BOOK,ODDS,UNITS,MARKET,GAME_TIME
+2026-04-11,Miami Marlins @ Detroit Tigers,BET (MIA) ML (+124) [HIGH CONFIDENCE],+124,+26.9%,69.8% (model) vs 42.9% (book),26.9,FANDUEL,+124,3,ML,1:11 PM ET
+2026-04-11,Minnesota Twins @ Toronto Blue Jays,BET (MIN) RL -1.5 (+164) [HIGH CONFIDENCE],-1.5,+22.8%,59.1% (model) vs 36.2% (book),22.9,FANDUEL,+164,3,SPREAD,3:08 PM ET
+2026-04-11,Boston Red Sox @ St. Louis Cardinals,BET (BOS) RL -1.5 (+119) [HIGH CONFIDENCE],-1.5,+20.1%,64.5% (model) vs 44.4% (book),20.1,DRAFTKINGS,+119,3,SPREAD,7:16 PM ET
+2026-04-11,San Francisco Giants @ Baltimore Orioles,BET (SFG) RL -1.5 (+146) [HIGH CONFIDENCE],-1.5,+20.1%,59.1% (model) vs 38.9% (book),20.2,FANDUEL,+146,3,SPREAD,7:16 PM ET
+2026-04-11,Athletics @ New York Mets,BET (NYM) RL -1.5 (+139) [HIGH CONFIDENCE],-1.5,+19.6%,59.7% (model) vs 40.1% (book),19.6,DRAFTKINGS,+139,3,SPREAD,4:11 PM ET
+2026-04-11,Arizona Diamondbacks @ Philadelphia Phillies,BET (PHI) RL -1.5 (+168) [HIGH CONFIDENCE],-1.5,+18.4%,54.1% (model) vs 35.7% (book),18.4,FANDUEL,+168,3,SPREAD,1:06 PM ET
+2026-04-11,Chicago White Sox @ Kansas City Royals,BET (CHW) ML (+159) [HIGH CONFIDENCE],+159,+17.9%,54.9% (model) vs 36.9% (book),18.0,DRAFTKINGS,+159,3,ML,4:11 PM ET
+2026-04-11,Washington Nationals @ Milwaukee Brewers,BET (MIL) RL -1.5 (+123) [HIGH CONFIDENCE],-1.5,+16.6%,59.7% (model) vs 43.2% (book),16.5,DRAFTKINGS,+123,3,SPREAD,7:11 PM ET
+2026-04-11,Houston Astros @ Seattle Mariners,BET (SEA) RL -1.5 (+150) [HIGH CONFIDENCE],-1.5,+15.9%,54.1% (model) vs 38.3% (book),15.8,FANDUEL,+150,3,SPREAD,9:41 PM ET
+2026-04-11,Houston Astros @ Seattle Mariners,BET (SEA) ML (-146) [LOW CONFIDENCE],-146,+9.1%,66.2% (model) vs 57.1% (book),9.1,FANDUEL,-146,1,ML,9:41 PM ET
+2026-04-11,Los Angeles Angels @ Cincinnati Reds,BET (LAA) ML (+113) [MEDIUM CONFIDENCE],+113,+12.3%,57.2% (model) vs 44.9% (book),12.3,DRAFTKINGS,+113,2,ML,4:11 PM ET
+2026-04-11,Pittsburgh Pirates @ Chicago Cubs,BET (CHC) RL -1.5 (+164) [LOW CONFIDENCE],-1.5,+9.7%,46.0% (model) vs 36.2% (book),9.8,FANDUEL,+164,1,SPREAD,2:21 PM ET
+2026-04-11,Cleveland Guardians @ Atlanta Braves,BET (CLE) RL -1.5 (+162) [LOW CONFIDENCE],-1.5,+9.3%,45.9% (model) vs 36.6% (book),9.3,FANDUEL,+162,1,SPREAD,7:16 PM ET
+2026-04-11,New York Yankees @ Tampa Bay Rays,BET (TBR) ML (+163) [LOW CONFIDENCE],+163,+8.8%,45.1% (model) vs 36.4% (book),8.7,DRAFTKINGS,+163,1,ML,6:11 PM ET

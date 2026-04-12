@@ -1,0 +1,49 @@
+MLB PROPS — 2026-04-11
+============================================================
+Generated: 2026-04-11 00:22
+
+────────────────────────────────────────────────────────────
+BEAT THE STREAK
+────────────────────────────────────────────────────────────
+🎯 Pick: Vladimir Guerrero Jr. (Toronto Blue Jays)
+   vs J. Ryan @ Toronto Blue Jays
+   Season: .295 AVG | OPS 0.889 | Hit rate 25.9%
+   Pitcher H-allowed: 21.0%  Park: 1.00x
+   Current personal streak: 16 games
+   BTS streak this season:  0 games (best: 0)
+
+  Top 5 candidates:
+  1. Vladimir Guerrero Jr. (Toronto Blue Jays)  Score:0.735  Avg:0.295  Streak:16
+  2. Bobby Witt Jr. (Chicago White Sox)  Score:0.675  Avg:0.289  Streak:8
+  3. Shea Langeliers (Minnesota Twins)  Score:0.631  Avg:0.238  Streak:9
+  4. Geraldo Perdomo (Texas Rangers)  Score:0.629  Avg:0.256  Streak:9
+  5. Giancarlo Stanton (Baltimore Orioles)  Score:0.625  Avg:0.239  Streak:8
+
+────────────────────────────────────────────────────────────
+HOME RUN PROPS
+────────────────────────────────────────────────────────────
+  1. Max Muncy (Minnesota Twins)  HR%: 8.5%  vs E. Lauer
+     Season: 144 HR / 2834 PA  (5.08% rate)  Park: 1.00x  Pitcher mult: 1.19x
+     Career H2H: 2 HR / 18 PA  (11.11% rate)  AVG .267  ← blended into score
+  2. Yordan Alvarez (Houston Astros)  HR%: 7.9%  vs L. Castillo
+     Season: 155 HR / 2708 PA  (5.72% rate)  Park: 0.96x  Pitcher mult: 0.89x
+     Career H2H: 3 HR / 21 PA  (14.29% rate)  AVG .474  ← blended into score
+  3. Kyle Schwarber (Philadelphia Phillies)  HR%: 7.6%  vs B. Pfaadt
+     Season: 239 HR / 3516 PA  (6.80% rate)  Park: 1.05x  Pitcher mult: 1.10x
+     Career H2H: 0 HR / 7 PA  (< 10 PA — season rate used)
+  4. Nick Kurtz (Minnesota Twins)  HR%: 7.2%  vs E. Lauer
+     Season: 36 HR / 506 PA  (7.11% rate)  Park: 1.00x  Pitcher mult: 1.19x
+     Career H2H: 0 HR / 3 PA  (< 10 PA — season rate used)
+  5. Brandon Nimmo (Arizona Diamondbacks)  HR%: 6.9%  vs T. Walker
+     Season: 98 HR / 3149 PA  (3.11% rate)  Park: 1.05x  Pitcher mult: 1.08x
+     Career H2H: 2 HR / 16 PA  (12.50% rate)  AVG .357  ← blended into score
+
+────────────────────────────────────────────────────────────
+NRFI / YRFI PICKS
+────────────────────────────────────────────────────────────
+  2 pick(s):
+
+  🔒 NRFI  Miami Marlins @ Detroit Tigers  (61% NRFI)  Conf: 22%
+     J. Junk: 78% NRFI (23 GS)  |  C. Mize: 77% NRFI (82 GS)  |  Park: 0.98x
+  💥 YRFI  Los Angeles Angels @ Cincinnati Reds  (42% NRFI)  Conf: 16%
+     G. Klassen: league avg  |  B. Williamson: 62% NRFI (26 GS)  |  Park: 1.07x

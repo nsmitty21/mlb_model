@@ -1,0 +1,50 @@
+MLB PROPS — 2026-04-10
+============================================================
+Generated: 2026-04-10 19:41
+
+────────────────────────────────────────────────────────────
+BEAT THE STREAK
+────────────────────────────────────────────────────────────
+🎯 Pick: Vladimir Guerrero Jr. (New York Mets)
+   vs J. Ginn @ New York Mets
+   Season: .295 AVG | OPS 0.889 | Hit rate 25.9%
+   Pitcher H-allowed: 24.6%  Park: 0.99x
+   Current personal streak: 16 games
+   BTS streak this season:  0 games (best: 0)
+
+  Top 5 candidates:
+  1. Vladimir Guerrero Jr. (New York Mets)  Score:0.759  Avg:0.295  Streak:16
+  2. Sal Stewart (St. Louis Cardinals)  Score:0.703  Avg:0.377  Streak:5
+  3. Jose Altuve (Cincinnati Reds)  Score:0.692  Avg:0.283  Streak:4
+  4. Yordan Alvarez (Cincinnati Reds)  Score:0.691  Avg:0.295  Streak:4
+  5. Jonathan Aranda (Boston Red Sox)  Score:0.687  Avg:0.280  Streak:11
+
+────────────────────────────────────────────────────────────
+HOME RUN PROPS
+────────────────────────────────────────────────────────────
+  1. Kyle Schwarber (Philadelphia Phillies)  HR%: 7.8%  vs M. Soroka
+     Season: 239 HR / 3516 PA  (6.80% rate)  Park: 1.05x  Pitcher mult: 1.12x
+     Career H2H: 0 HR / 3 PA  (< 10 PA — season rate used)
+  2. William Contreras (Milwaukee Brewers)  HR%: 7.5%  vs J. Irvin
+     Season: 87 HR / 2604 PA  (3.34% rate)  Park: 0.98x  Pitcher mult: 1.24x
+     Career H2H: 2 HR / 18 PA  (11.11% rate)  AVG .286  ← blended into score
+  3. Shohei Ohtani (Los Angeles Dodgers)  HR%: 6.9%  vs K. Rocker
+     Season: 244 HR / 3550 PA  (6.87% rate)  Park: 1.00x  Pitcher mult: 1.03x
+  4. Matt Olson (Atlanta Braves)  HR%: 6.5%  vs S. Cecconi
+     Season: 187 HR / 3560 PA  (5.25% rate)  Park: 1.02x  Pitcher mult: 1.25x
+     Career H2H: 0 HR / 5 PA  (< 10 PA — season rate used)
+  5. Michael Busch (Milwaukee Brewers)  HR%: 6.4%  vs J. Irvin
+     Season: 61 HR / 1295 PA  (4.71% rate)  Park: 0.98x  Pitcher mult: 1.24x
+     Career H2H: 1 HR / 14 PA  (7.14% rate)  AVG .286  ← blended into score
+
+────────────────────────────────────────────────────────────
+NRFI / YRFI PICKS
+────────────────────────────────────────────────────────────
+  3 pick(s):
+
+  💥 YRFI  New York Yankees @ Tampa Bay Rays  (36% NRFI)  Conf: 27%
+     L. Gil: 58% NRFI (50 GS)  |  S. Matz: 63% NRFI (65 GS)  |  Park: 0.96x
+  💥 YRFI  San Francisco Giants @ Baltimore Orioles  (41% NRFI)  Conf: 18%
+     L. Roupp: 65% NRFI (26 GS)  |  S. Baz: 64% NRFI (56 GS)  |  Park: 0.99x
+  💥 YRFI  Athletics @ New York Mets  (42% NRFI)  Conf: 16%
+     J. Ginn: 64% NRFI (22 GS)  |  C. Holmes: 68% NRFI (31 GS)  |  Park: 0.99x

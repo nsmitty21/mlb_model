@@ -1,0 +1,41 @@
+MLB PROPS — 2026-04-09
+============================================================
+Generated: 2026-04-09 17:50
+
+────────────────────────────────────────────────────────────
+BEAT THE STREAK
+────────────────────────────────────────────────────────────
+🎯 Pick: Xavier Edwards (San Diego Padres)
+   vs J. Herget @ San Diego Padres
+   Season: .299 AVG | OPS 0.730 | Hit rate 26.9%
+   Pitcher H-allowed: 22.9%  Park: 0.99x
+   Current personal streak: 7 games
+   BTS streak this season:  0 games (best: 0)
+
+  Top 5 candidates:
+  1. Xavier Edwards (San Diego Padres)  Score:0.678  Avg:0.299  Streak:7
+  2. Sal Stewart (Miami Marlins)  Score:0.672  Avg:0.377  Streak:5
+  3. Bobby Witt Jr. (Chicago White Sox)  Score:0.668  Avg:0.289  Streak:8
+  4. Jeremiah Jackson (Detroit Tigers)  Score:0.646  Avg:0.282  Streak:2
+  5. Ryan O'Hearn (Arizona Diamondbacks)  Score:0.640  Avg:0.269  Streak:6
+
+────────────────────────────────────────────────────────────
+HOME RUN PROPS
+────────────────────────────────────────────────────────────
+  1. Byron Buxton (Detroit Tigers)  HR%: 6.2%  vs M. Abel
+     Season: 117 HR / 1935 PA  (6.05% rate)  Park: 0.98x  Pitcher mult: 1.10x
+  2. Pete Alonso (Detroit Tigers)  HR%: 6.1%  vs M. Abel
+     Season: 200 HR / 3475 PA  (5.76% rate)  Park: 0.98x  Pitcher mult: 1.10x
+     Career H2H: 0 HR / 4 PA  (< 10 PA — season rate used)
+  3. Hunter Goodman (Cincinnati Reds)  HR%: 5.8%  vs M. Meyer
+     Season: 45 HR / 896 PA  (5.02% rate)  Park: 0.95x  Pitcher mult: 1.30x
+     Career H2H: 2 HR / 6 PA  (< 10 PA — season rate used)
+  4. Rece Hinds (Cincinnati Reds)  HR%: 5.7%  vs M. Meyer
+     Season: 7 HR / 95 PA  (7.37% rate)  Park: 0.95x  Pitcher mult: 1.30x
+  5. Mike Zunino (Colorado Rockies)  HR%: 5.5%  vs R. Vasquez
+     Season: 41 HR / 653 PA  (6.28% rate)  Park: 0.99x  Pitcher mult: 1.00x
+
+────────────────────────────────────────────────────────────
+NRFI / YRFI PICKS
+────────────────────────────────────────────────────────────
+  No NRFI/YRFI picks today (all games near 50/50).

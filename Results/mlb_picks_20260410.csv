@@ -1,0 +1,12 @@
+DATE,MATCHUP,BET_SIGNAL,VEGAS_SPREAD,SPREAD_EDGE,MODEL_PRED,PRED_MARGIN,BOOK,ODDS,UNITS,MARKET,GAME_TIME
+2026-04-10,Miami Marlins @ Detroit Tigers,BET (MIA) ML (+180) [HIGH CONFIDENCE],+180,+36.1%,69.8% (model) vs 33.7% (book),36.1,FANDUEL,+180,3,ML,6:41 PM ET
+2026-04-10,Minnesota Twins @ Toronto Blue Jays,BET (TOR) ML (+168) [HIGH CONFIDENCE],+168,+29.1%,64.3% (model) vs 35.2% (book),29.1,FANDUEL,+168,3,ML,7:08 PM ET
+2026-04-10,Los Angeles Angels @ Cincinnati Reds,BET (LAA) ML (-104) [HIGH CONFIDENCE],-104,+19.8%,67.9% (model) vs 48.1% (book),19.8,FANDUEL,-104,3,ML,6:46 PM ET
+2026-04-10,Cleveland Guardians @ Atlanta Braves,BET (ATL) RL -1.5 (+128) [HIGH CONFIDENCE],-1.5,+18.8%,59.7% (model) vs 40.9% (book),18.8,FANDUEL,+128,3,SPREAD,7:16 PM ET
+2026-04-10,Chicago White Sox @ Kansas City Royals,BET (CHW) ML (+153) [HIGH CONFIDENCE],+153,+17.1%,54.9% (model) vs 37.8% (book),17.1,DRAFTKINGS,+153,3,ML,7:41 PM ET
+2026-04-10,Athletics @ New York Mets,BET (NYM) RL -1.5 (+148) [HIGH CONFIDENCE],-1.5,+16.4%,54.1% (model) vs 37.7% (book),16.4,FANDUEL,+148,3,SPREAD,7:11 PM ET
+2026-04-10,Houston Astros @ Seattle Mariners,BET (SEA) RL -1.5 (+153) [HIGH CONFIDENCE],-1.5,+16.1%,54.1% (model) vs 38.0% (book),16.1,DRAFTKINGS,+153,3,SPREAD,9:41 PM ET
+2026-04-10,Houston Astros @ Seattle Mariners,BET (SEA) ML (-136) [MEDIUM CONFIDENCE],-136,+10.8%,66.2% (model) vs 55.5% (book),10.7,FANDUEL,-136,2,ML,9:41 PM ET
+2026-04-10,New York Yankees @ Tampa Bay Rays,BET (TBR) ML (+220) [HIGH CONFIDENCE],+220,+15.7%,45.1% (model) vs 29.5% (book),15.6,FANDUEL,+220,3,ML,7:11 PM ET
+2026-04-10,Washington Nationals @ Milwaukee Brewers,BET (MIL) RL -1.5 (+105) [MEDIUM CONFIDENCE],-1.5,+13.1%,59.7% (model) vs 46.7% (book),13.0,FANDUEL,+105,2,SPREAD,7:41 PM ET
+2026-04-10,San Francisco Giants @ Baltimore Orioles,BET (BAL) RL -1.5 (+144) [MEDIUM CONFIDENCE],-1.5,+11.6%,49.9% (model) vs 38.3% (book),11.6,FANDUEL,+144,2,SPREAD,7:16 PM ET

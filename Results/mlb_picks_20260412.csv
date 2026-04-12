@@ -1,0 +1,16 @@
+DATE,MATCHUP,BET_SIGNAL,VEGAS_SPREAD,SPREAD_EDGE,MODEL_PRED,PRED_MARGIN,BOOK,ODDS,UNITS,MARKET,GAME_TIME
+2026-04-12,Miami Marlins @ Detroit Tigers,BET (MIA) ML (+176) [HIGH CONFIDENCE],+176,+35.0%,69.8% (model) vs 34.8% (book),35.0,FANDUEL,+176,3,ML,1:41 PM ET
+2026-04-12,Minnesota Twins @ Toronto Blue Jays,BET (MIN) RL -1.5 (+180) [HIGH CONFIDENCE],-1.5,+24.9%,59.1% (model) vs 34.2% (book),24.9,FANDUEL,+180,3,SPREAD,1:38 PM ET
+2026-04-12,Boston Red Sox @ St. Louis Cardinals,BET (BOS) RL -1.5 (+138) [HIGH CONFIDENCE],-1.5,+24.3%,64.5% (model) vs 40.2% (book),24.3,FANDUEL,+138,3,SPREAD,2:16 PM ET
+2026-04-12,New York Yankees @ Tampa Bay Rays,BET (NYY) RL -1.5 (+125) [HIGH CONFIDENCE],-1.5,+22.0%,64.5% (model) vs 42.5% (book),22.0,FANDUEL,+125,3,SPREAD,1:40 PM ET
+2026-04-12,Los Angeles Angels @ Cincinnati Reds,BET (LAA) ML (-104) [HIGH CONFIDENCE],-104,+18.8%,67.9% (model) vs 49.1% (book),18.8,FANDUEL,-104,3,ML,1:41 PM ET
+2026-04-12,Chicago White Sox @ Kansas City Royals,BET (CHW) ML (+159) [HIGH CONFIDENCE],+159,+17.9%,54.9% (model) vs 36.9% (book),18.0,DRAFTKINGS,+159,3,ML,2:11 PM ET
+2026-04-12,San Francisco Giants @ Baltimore Orioles,BET (BAL) RL -1.5 (+162) [HIGH CONFIDENCE],-1.5,+17.6%,54.1% (model) vs 36.6% (book),17.5,FANDUEL,+162,3,SPREAD,1:36 PM ET
+2026-04-12,Athletics @ New York Mets,BET (NYM) RL -1.5 (+123) [HIGH CONFIDENCE],-1.5,+16.4%,59.7% (model) vs 43.3% (book),16.4,DRAFTKINGS,+123,3,SPREAD,1:41 PM ET
+2026-04-12,Arizona Diamondbacks @ Philadelphia Phillies,BET (PHI) RL -1.5 (+150) [HIGH CONFIDENCE],-1.5,+15.9%,54.1% (model) vs 38.3% (book),15.8,FANDUEL,+150,3,SPREAD,1:36 PM ET
+2026-04-12,Washington Nationals @ Milwaukee Brewers,BET (MIL) RL -1.5 (+118) [HIGH CONFIDENCE],-1.5,+15.9%,59.7% (model) vs 43.9% (book),15.8,FANDUEL,+118,3,SPREAD,2:11 PM ET
+2026-04-12,Cleveland Guardians @ Atlanta Braves,BET (ATL) RL -1.5 (+114) [HIGH CONFIDENCE],-1.5,+15.0%,59.7% (model) vs 44.7% (book),15.0,FANDUEL,+114,3,SPREAD,7:21 PM ET
+2026-04-12,Colorado Rockies @ San Diego Padres,BET (COL) RL +1.5 (-115) [MEDIUM CONFIDENCE],1.5,+13.3%,64.5% (model) vs 51.2% (book),13.3,FANDUEL,-115,2,SPREAD,4:11 PM ET
+2026-04-12,Colorado Rockies @ San Diego Padres,BET (COL) ML (+194) [LOW CONFIDENCE],+194,+7.8%,40.3% (model) vs 32.5% (book),7.8,DRAFTKINGS,+194,1,ML,4:11 PM ET
+2026-04-12,Pittsburgh Pirates @ Chicago Cubs,BET (CHC) ML (-126) [LOW CONFIDENCE],-126,+8.5%,62.2% (model) vs 53.7% (book),8.5,FANDUEL,-126,1,ML,2:21 PM ET
+2026-04-12,Pittsburgh Pirates @ Chicago Cubs,BET (CHC) RL +nan (+119) [LOW CONFIDENCE],nan,+8.5%,54.1% (model) vs 45.7% (book),8.4,DRAFTKINGS,+119,1,SPREAD,2:21 PM ET

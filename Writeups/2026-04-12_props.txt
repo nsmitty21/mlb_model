@@ -1,0 +1,47 @@
+MLB PROPS — 2026-04-12
+============================================================
+Generated: 2026-04-12 00:11
+
+────────────────────────────────────────────────────────────
+BEAT THE STREAK
+────────────────────────────────────────────────────────────
+🎯 Pick: Sal Stewart (Cincinnati Reds)
+   vs J. Soriano @ Cincinnati Reds
+   Season: .377 AVG | OPS 1.143 | Hit rate 34.5%
+   Pitcher H-allowed: 26.0%  Park: 1.07x
+   Current personal streak: 5 games
+   BTS streak this season:  0 games (best: 0)
+
+  Top 5 candidates:
+  1. Sal Stewart (Cincinnati Reds)  Score:0.748  Avg:0.377  Streak:5
+  2. Xavier Edwards (San Diego Padres)  Score:0.707  Avg:0.299  Streak:7
+  3. Geraldo Perdomo (Arizona Diamondbacks)  Score:0.687  Avg:0.256  Streak:9
+  4. Bobby Witt Jr. (Cleveland Guardians)  Score:0.687  Avg:0.289  Streak:8
+  5. Jonathan Aranda (New York Yankees)  Score:0.665  Avg:0.280  Streak:11
+
+────────────────────────────────────────────────────────────
+HOME RUN PROPS
+────────────────────────────────────────────────────────────
+  1. Brandon Lowe (Athletics)  HR%: 15.6%  vs F. Peralta
+     Season: 127 HR / 2335 PA  (5.44% rate)  Park: 0.99x  Pitcher mult: 0.99x
+     Career H2H: 6 HR / 14 PA  (42.86% rate)  AVG .500  ← blended into score
+  2. Brendan Donovan (Atlanta Braves)  HR%: 9.9%  vs T. Bibee
+     Season: 43 HR / 2038 PA  (2.11% rate)  Park: 1.02x  Pitcher mult: 1.00x
+     Career H2H: 4 HR / 11 PA  (36.36% rate)  AVG .700  ← blended into score
+  3. Luke Raley (Atlanta Braves)  HR%: 9.5%  vs T. Bibee
+     Season: 54 HR / 1252 PA  (4.31% rate)  Park: 1.02x  Pitcher mult: 1.00x
+     Career H2H: 3 HR / 11 PA  (27.27% rate)  AVG .273  ← blended into score
+  4. Kyle Schwarber (Philadelphia Phillies)  HR%: 9.4%  vs Z. Gallen
+     Season: 239 HR / 3516 PA  (6.80% rate)  Park: 1.05x  Pitcher mult: 0.90x
+     Career H2H: 3 HR / 20 PA  (15.00% rate)  AVG .294  ← blended into score
+  5. Dominic Canzone (Atlanta Braves)  HR%: 9.3%  vs T. Bibee
+     Season: 31 HR / 687 PA  (4.51% rate)  Park: 1.02x  Pitcher mult: 1.00x
+     Career H2H: 3 HR / 13 PA  (23.08% rate)  AVG .385  ← blended into score
+
+────────────────────────────────────────────────────────────
+NRFI / YRFI PICKS
+────────────────────────────────────────────────────────────
+  1 pick(s):
+
+  💥 YRFI  New York Yankees @ Tampa Bay Rays  (40% NRFI)  Conf: 20%
+     C. Schlittler: 56% NRFI (18 GS)  |  D. Rasmussen: 70% NRFI (84 GS)  |  Park: 0.96x
